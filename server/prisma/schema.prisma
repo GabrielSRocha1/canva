@@ -1,0 +1,17 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// Armazenamento chave-valor: o app salva todo o estado (projetos, tarefas etc.)
+// como um JSON sob a chave "verum-canvas-v1". Todos os visitantes leem/gravam
+// a mesma chave, então todos veem os mesmos projetos.
+model Entry {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

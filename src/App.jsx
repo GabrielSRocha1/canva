@@ -1,0 +1,1475 @@
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import {
+  LayoutDashboard, FolderKanban, CalendarClock, Search, Plus, Sun, Moon,
+  ChevronLeft, Check, Clock, Flame, Copy, Archive, Trash2, X, History,
+  Download, User, Filter, CircleDot, MessageSquare, ListChecks, Trophy,
+  Activity, Star, Pencil, GripVertical, Tag, Paperclip, ArchiveRestore,
+  Wallet, Coins, CreditCard, Rocket, Globe, Truck, Mic, Zap, Layers,
+  Shield, BarChart3, Link as LinkIcon, AlertCircle, CheckCircle2, Keyboard
+} from "lucide-react";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip } from "recharts";
+import { storage } from "./storage.js";
+
+/* ============ CONSTANTES / UTIL ============ */
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+const NOW = () => new Date().toISOString();
+const fmtD = (iso) => { if (!iso) return "—"; const d = new Date(iso.length === 10 ? iso + "T12:00" : iso); return d.toLocaleDateString("pt-BR"); };
+const fmtDT = (iso) => { if (!iso) return "—"; const d = new Date(iso); return d.toLocaleDateString("pt-BR") + " " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); };
+const daysDiff = (iso) => { if (!iso) return null; return Math.ceil((new Date(iso + "T23:59:59") - new Date()) / 86400000); };
+
+const STATUS = {
+  nao:        { label: "Não iniciado", color: "#6B7280" },
+  andamento:  { label: "Em andamento", color: "#3B82F6" },
+  concluido:  { label: "Concluído",    color: "#22C55E" },
+  atrasado:   { label: "Atrasado",     color: "#EF4444" },
+  aguardando: { label: "Aguardando",   color: "#EAB308" },
+};
+const PRIO = { baixa: "Baixa", media: "Média", alta: "Alta" };
+const PRIO_COLOR = { baixa: "#6B7280", media: "#3B82F6", alta: "#EF4444" };
+
+const P_COLORS = ["#D4AF37", "#3B82F6", "#22C55E", "#A855F7", "#EF4444", "#14B8A6", "#F97316", "#EC4899"];
+const P_ICONS = { Wallet, Coins, CreditCard, Rocket, Globe, Truck, Mic, Zap, Layers, Shield, BarChart3, FolderKanban };
+const P_CATEGORIES = ["Desenvolvimento", "Marketing", "Financeiro", "Jurídico", "Operações", "Comunidade"];
+const PIcon = ({ name, ...props }) => { const I = P_ICONS[name] || FolderKanban; return <I {...props} />; };
+
+const blankTask = (over = {}) => ({
+  id: uid(), name: "", status: "nao", desc: "", resp: "Equipe", prio: "media",
+  urgent: false, startDate: "", deadline: "", createdAt: NOW(), updatedAt: NOW(),
+  notes: "", archived: false, subtasks: [], comments: [], tags: [], attachments: [], ...over,
+});
+const mk = (name, status = "nao", extra = {}) => blankTask({ name, status, ...extra });
+
+/* ============ SEED (transcrição do quadro físico) ============ */
+const seedProjects = () => [
+  { id: uid(), name: "Verum Wallet", code: "WALLET", color: "#D4AF37", icon: "Wallet", archived: false, createdAt: NOW(), tasks: [
+    mk("Gerar chaves (auto-custódia)", "concluido"), mk("Gerar senha", "concluido"),
+    mk("Recuperação de carteira", "concluido"), mk("Configurar moeda e linguagem", "concluido"),
+    mk("Configurar biometria", "concluido"), mk("Backup de chaves", "concluido"),
+    mk("Sair e avisar", "concluido"), mk("Identificação", "concluido"), mk("Informações", "concluido"),
+    mk("Conectar dApps", "concluido"), mk("Transferir / enviar", "concluido"),
+    mk("Câmbio / troca", "concluido"), mk("Receber", "concluido"),
+    mk("Investir", "andamento", { notes: "Feito — atualizar o Pix" }),
+    mk("Suporte — central de ajuda", "nao"),
+    mk("Ramp — compra cripto/fiat", "nao", { desc: "Criar integração de on-ramp" }),
+    mk("Pesquisar e add token por endereço", "nao"), mk("Add carteira por chaves privadas", "nao"),
+    mk("2FA assinatura com NFC", "andamento", { notes: "Fase de teste" }),
+    mk("Notificações e atividades", "andamento", { notes: "Atualizar" }),
+    mk("Notificações de alta/baixa do mercado", "nao"),
+    mk("P2P Pix/Swift — botão no menu inferior", "andamento", { notes: "Testar" }),
+    mk("Banner em códigos", "andamento", { notes: "Testar" }),
+    mk("SDK API", "nao"), mk("Extensão para Google Chrome", "nao"),
+    mk("Publicar na Play Store e App Store", "nao", { desc: "Criar contas de desenvolvedor" }),
+    mk("PWA", "andamento", { notes: "Conferir" }),
+    mk("Idiomas / moedas", "andamento", { notes: "Conferir" }),
+    mk("Termos e Política", "concluido"),
+  ]},
+  { id: uid(), name: "Verum Vesting", code: "VESTING", color: "#A855F7", icon: "Shield", archived: false, createdAt: NOW(), tasks: [
+    mk("Smart contract blockchain", "concluido"), mk("Conexão com carteira (Verum e Solflare)", "concluido"),
+    mk("Criar contratos", "concluido"), mk("Enviar e-mail ao criar contratos", "concluido"),
+    mk("Leitura de saldos da carteira conectada", "concluido"), mk("Banco de dados", "concluido"),
+    mk("Status de contrato", "concluido"), mk("Visualização e detalhes do contrato", "concluido"),
+    mk("Reivindicar tokens", "concluido"),
+    mk("Corrigir falha de conexão Verum ↔ Vesting", "andamento", { prio: "alta", desc: "Atualização/retorno do endereço público da Verum; remover Phantom ou corrigir verificação de instalação — buscar apenas app instalado, igual à Solflare (extensão ou app)." }),
+    mk("PWA", "andamento", { notes: "Conferir" }),
+    mk("Idiomas / moedas", "andamento", { notes: "Conferir" }),
+    mk("Termos e Política", "andamento", { notes: "Atualizar e verificar" }),
+  ]},
+  { id: uid(), name: "Verum Pay", code: "PAY", color: "#22C55E", icon: "CreditCard", archived: false, createdAt: NOW(), tasks: [
+    mk("Login / senha", "concluido"), mk("Cadastro do lojista/prestador", "concluido"),
+    mk("Cadastro do operador", "concluido"), mk("Painel gerenciar dados", "concluido"),
+    mk("Tela de recebimento", "concluido"), mk("Tela de relatório", "concluido"),
+    mk("Fluxo de entrega em Solana", "concluido"), mk("CRUD", "concluido"),
+    mk("Bloqueio para operador", "concluido"), mk("Imprimir / compartilhar comprovante", "concluido"),
+    mk("Fluxo de cobrança de taxa", "concluido"),
+    mk("Banco de dados", "andamento", { notes: "Testar e verificar" }),
+    mk("Automatizar banco de dados", "nao"),
+    mk("PWA", "andamento", { notes: "Conferir" }),
+    mk("Idiomas / moedas", "nao"), mk("Termos e Política", "nao"), mk("Suporte", "nao"),
+  ]},
+  { id: uid(), name: "ServeNow Global Pay", code: "SN-PAY", color: "#14B8A6", icon: "Globe", archived: false, createdAt: NOW(), tasks: [
+    mk("Landing page prestador", "andamento", { notes: "Teste" }),
+    mk("Landing page encontrar prestador", "andamento", { notes: "Teste" }),
+    mk("Payment (cópia do Pay-Verum)", "nao"), mk("Login / senha", "nao"),
+    mk("Cadastro do lojista/prestador", "andamento", { notes: "Atualizar do Pay-Verum" }),
+    mk("Painel gerenciar dados", "nao"), mk("Painel relatório de dados", "nao"),
+    mk("CRUD", "nao"), mk("Banco de dados", "nao"), mk("Automatizar banco de dados", "nao"),
+    mk("PWA", "nao"), mk("Idiomas / moedas", "nao"), mk("Termos e Política", "nao"), mk("Suporte", "nao"),
+    mk("Marketing — automação de publicidade", "nao"), mk("Instagram — publicidade", "nao"),
+    mk("X — publicidade", "nao"), mk("YouTube — publicidade", "nao"),
+  ]},
+  { id: uid(), name: "BodeCoin", code: "BDC", color: "#F97316", icon: "Coins", archived: false, createdAt: NOW(), tasks: [
+    mk("Landing page", "concluido"), mk("Moeda", "concluido"), mk("Open book", "concluido"), mk("Pool", "concluido"),
+    mk("PWA", "nao"), mk("Idiomas / moedas", "andamento", { notes: "Conferir" }),
+    mk("Termos e Política", "andamento", { notes: "Conferir" }),
+    mk("Marketing — automação de publicidade", "nao"), mk("X — publicidade", "nao"),
+    mk("YouTube — publicidade", "nao"), mk("Telegram — publicidade", "nao"),
+    mk("Comunidade — mais engajamento", "nao"),
+  ]},
+  { id: uid(), name: "Escoteiro", code: "ESCT", color: "#3B82F6", icon: "Coins", archived: false, createdAt: NOW(), tasks: [
+    mk("Landing page", "concluido"), mk("Moeda", "concluido"), mk("Open book", "concluido"), mk("Pool", "concluido"),
+    mk("PWA", "nao"), mk("Idiomas / moedas", "andamento", { notes: "Conferir" }),
+    mk("Termos e Política", "andamento", { notes: "Conferir" }),
+    mk("Marketing — automação de publicidade", "nao"), mk("X — publicidade", "nao"),
+    mk("YouTube — publicidade", "nao"), mk("Telegram — publicidade", "nao"),
+    mk("Comunidade — mais engajamento", "nao"),
+  ]},
+  { id: uid(), name: "Brutos", code: "BRT", color: "#EF4444", icon: "Coins", archived: false, createdAt: NOW(), tasks: [
+    mk("Landing page", "concluido"), mk("Moeda", "concluido"),
+    mk("Open book", "aguardando", { notes: "Não faz no token 2022" }), mk("Pool", "nao"),
+    mk("PWA", "nao"), mk("Idiomas / moedas", "andamento", { notes: "Conferir" }),
+    mk("Termos e Política", "andamento", { notes: "Conferir" }),
+    mk("Marketing — automação de publicidade", "nao"), mk("X — publicidade", "nao"),
+    mk("YouTube — publicidade", "nao"), mk("Telegram — publicidade", "nao"),
+    mk("Comunidade — mais engajamento", "nao"),
+  ]},
+  { id: uid(), name: "Verum VRC", code: "VRC", color: "#D4AF37", icon: "Coins", archived: false, createdAt: NOW(), tasks: [
+    mk("Landing page", "concluido"), mk("Moeda", "concluido"), mk("Open book", "nao"), mk("Pool", "nao"),
+    mk("PWA", "nao"), mk("Idiomas / moedas", "andamento", { notes: "Conferir" }),
+    mk("Termos e Política", "andamento", { notes: "Conferir" }),
+    mk("Marketing — automação de publicidade", "nao"), mk("X — publicidade", "nao"),
+    mk("YouTube — publicidade", "nao"), mk("Telegram — publicidade", "nao"),
+    mk("Comunidade — mais engajamento", "nao"),
+  ]},
+  { id: uid(), name: "Verum (site)", code: "VERUM", color: "#D4AF37", icon: "Globe", archived: false, createdAt: NOW(), tasks: [
+    mk("Landing page", "concluido"), mk("PWA", "nao"),
+    mk("Idiomas / moedas", "andamento", { notes: "Conferir" }),
+    mk("Marketing — automação de publicidade", "nao"), mk("Instagram — publicidade", "nao"),
+    mk("X — publicidade", "nao"), mk("YouTube — publicidade", "nao"),
+    mk("Comunidade — fazer engajamento", "nao"),
+  ]},
+  { id: uid(), name: "Palestras", code: "PALESTRAS", color: "#A855F7", icon: "Mic", archived: false, createdAt: NOW(), tasks: [
+    mk("Landing page", "concluido"), mk("PWA", "nao"),
+    mk("Idiomas / moedas", "andamento", { notes: "Conferir" }),
+    mk("Termos e Política", "andamento", { notes: "Conferir" }),
+    mk("Marketing — automação de publicidade", "nao"), mk("Instagram — publicidade", "nao"),
+    mk("X — publicidade", "nao"), mk("YouTube — publicidade", "nao"),
+    mk("Telegram — publicidade", "nao"), mk("Comunidade — fazer engajamento", "nao"),
+  ]},
+  { id: uid(), name: "HibrydTruck", code: "HBT", color: "#14B8A6", icon: "Truck", archived: false, createdAt: NOW(), tasks: [
+    mk("Landing page (Voltdrive — módulos elétricos)", "andamento", { notes: "Atualizar" }),
+    mk("PWA", "nao"), mk("Idiomas / moedas", "nao"), mk("Termos e Política", "nao"),
+    mk("Marketing — automação de publicidade", "nao"), mk("Instagram — publicidade", "nao"),
+    mk("X — publicidade", "nao"), mk("YouTube — publicidade", "nao"),
+    mk("Comunidade — fazer engajamento", "nao"),
+  ]},
+  { id: uid(), name: "Executivo Rocha", code: "EXEC", color: "#D4AF37", icon: "Rocket", archived: false, createdAt: NOW(), tasks: [
+    mk("Landing page pessoal", "andamento", { notes: "Atualizar" }), mk("PWA", "nao"),
+    mk("Idiomas / moedas", "andamento", { notes: "Atualizar" }),
+    mk("Termos e Política", "andamento", { notes: "Atualizar" }),
+    mk("Marketing — automação de publicidade", "nao"), mk("Instagram — publicidade", "nao"),
+    mk("X — publicidade", "nao"), mk("YouTube — publicidade", "nao"),
+    mk("Comunidade — fazer engajamento", "nao"),
+  ]},
+];
+const seedState = () => ({
+  v: 2, projects: seedProjects(), favorites: [],
+  history: [{ ts: NOW(), user: "Sistema", text: "Canvas importado do quadro físico de planejamento" }],
+});
+
+/* migração de dados v1 → v2 (nunca perde nada) */
+const migrate = (s) => {
+  if (!s || !Array.isArray(s.projects)) return seedState();
+  s.projects.forEach((p, i) => {
+    if (!p.color) p.color = P_COLORS[i % P_COLORS.length];
+    if (!p.icon) p.icon = "FolderKanban";
+    if (p.category == null) p.category = "";
+    if (!p.createdAt) p.createdAt = NOW();
+    (p.tasks || []).forEach((tk) => {
+      if (!tk.tags) tk.tags = [];
+      if (!tk.attachments) tk.attachments = [];
+      if (!tk.comments) tk.comments = [];
+      if (tk.startDate == null) tk.startDate = "";
+    });
+  });
+  if (!s.favorites) s.favorites = [];
+  if (!s.history) s.history = [];
+  s.v = 2;
+  return s;
+};
+
+/* ============ TEMA ============ */
+const THEMES = {
+  dark: {
+    bg: "#0B0F1A", surface: "#121826", surface2: "#182136", border: "rgba(212,175,55,0.14)",
+    borderSoft: "rgba(255,255,255,0.07)", text: "#ECEFF7", dim: "#8C94A9",
+    gold: "#D4AF37", goldSoft: "rgba(212,175,55,0.13)", shadow: "0 8px 30px rgba(0,0,0,0.45)",
+    glass: "rgba(18,24,38,0.85)", danger: "#EF4444",
+  },
+  light: {
+    bg: "#F5F4EF", surface: "#FFFFFF", surface2: "#F0EEE6", border: "rgba(158,124,20,0.28)",
+    borderSoft: "rgba(20,25,40,0.10)", text: "#171E2E", dim: "#68708A",
+    gold: "#9E7C14", goldSoft: "rgba(158,124,20,0.10)", shadow: "0 8px 24px rgba(23,30,46,0.10)",
+    glass: "rgba(255,255,255,0.88)", danger: "#DC2626",
+  },
+};
+
+/* ============ COMPONENTES BASE ============ */
+const Ring = ({ pct, size = 52, stroke = 5, t, color }) => {
+  const r = (size - stroke) / 2, c = 2 * Math.PI * r;
+  return (
+    <svg width={size} height={size} className="shrink-0" style={{ transform: "rotate(-90deg)" }} aria-label={`${pct}%`}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={t.borderSoft} strokeWidth={stroke} />
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color || t.gold} strokeWidth={stroke}
+        strokeDasharray={c} strokeDashoffset={c * (1 - Math.min(pct, 100) / 100)} strokeLinecap="round"
+        style={{ transition: "stroke-dashoffset .6s cubic-bezier(.4,0,.2,1)" }} />
+    </svg>
+  );
+};
+
+const Pill = ({ status }) => {
+  const s = STATUS[status];
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
+      style={{ background: s.color + "22", color: s.color }}>
+      <CircleDot size={10} /> {s.label}
+    </span>
+  );
+};
+
+const Box = ({ checked, color, onClick, label, t }) => (
+  <button type="button" onClick={onClick} title={label} aria-pressed={checked}
+    className="flex h-5 w-5 shrink-0 items-center justify-center rounded transition-all focus-visible:ring-2"
+    style={{ border: `1.5px solid ${checked ? color : t.dim}`, background: checked ? color : "transparent",
+      boxShadow: checked ? `0 0 8px ${color}66` : "none" }}>
+    {checked && <Check size={13} color="#fff" strokeWidth={3} />}
+  </button>
+);
+
+const Field = ({ label, t, children, error }) => (
+  <label className="block space-y-1 text-sm">
+    <div className="text-xs font-medium" style={{ color: error ? t.danger : t.dim }}>{label}{error && ` — ${error}`}</div>
+    {children}
+  </label>
+);
+const inputStyle = (t, error) => ({
+  background: t.surface2, color: t.text,
+  border: `1px solid ${error ? t.danger : t.borderSoft}`, borderRadius: 10,
+  padding: "8px 10px", width: "100%", fontSize: 14,
+});
+
+const Modal = ({ children, onClose, t, wide }) => (
+  <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+    style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(3px)" }}
+    onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className={`vfade max-h-[92vh] w-full ${wide ? "max-w-lg" : "max-w-md"} overflow-y-auto rounded-t-3xl border p-5 sm:rounded-3xl`}
+      style={{ background: t.surface, borderColor: t.border, boxShadow: t.shadow }} role="dialog" aria-modal="true">
+      {children}
+    </div>
+  </div>
+);
+
+const Btn = ({ children, onClick, kind = "ghost", t, disabled, busy, ...rest }) => {
+  const styles = {
+    primary: { background: t.gold, color: "#131313", border: "1px solid transparent" },
+    ghost: { background: "transparent", color: t.dim, border: `1px solid ${t.borderSoft}` },
+    danger: { background: "transparent", color: t.danger, border: `1px solid ${t.danger}55` },
+  }[kind];
+  return (
+    <button type="button" onClick={onClick} disabled={disabled || busy} {...rest}
+      className="inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition-all disabled:opacity-50"
+      style={styles}>
+      {busy ? <span className="vspin inline-block h-3.5 w-3.5 rounded-full border-2 border-current" style={{ borderTopColor: "transparent" }} /> : children}
+    </button>
+  );
+};
+
+/* ============ APP ============ */
+export default function App() {
+  const [state, setState] = useState(null);
+  const [loadError, setLoadError] = useState(false);
+  const [dark, setDark] = useState(true);
+  const [view, setView] = useState("dashboard");
+  const [openProject, setOpenProject] = useState(null);
+  const [openTask, setOpenTask] = useState(null);           // {pid, tid}
+  const [projectModal, setProjectModal] = useState(null);    // {mode:'create'} | {mode:'edit', pid}
+  const [taskModal, setTaskModal] = useState(null);          // {pid}
+  const [confirmBox, setConfirmBox] = useState(null);        // {msg, onYes}
+  const [filters, setFilters] = useState({ q: "", status: "todos", prio: "todas", resp: "todos" });
+  const [showFilters, setShowFilters] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [onlyPriority, setOnlyPriority] = useState(false);
+  const [catFilter, setCatFilter] = useState("");
+  const [user, setUser] = useState("Verum");
+  const [toasts, setToasts] = useState([]);
+  const [dragId, setDragId] = useState(null);
+  const [dragOver, setDragOver] = useState(null);
+  const loaded = useRef(false);
+  const saveT = useRef(null);
+  const searchRef = useRef(null);
+  const t = dark ? THEMES.dark : THEMES.light;
+
+  const toast = useCallback((msg, type = "ok") => {
+    const id = uid();
+    setToasts((x) => [...x, { id, msg, type }]);
+    setTimeout(() => setToasts((x) => x.filter((y) => y.id !== id)), 2600);
+  }, []);
+
+  /* ---- carregar ---- */
+  useEffect(() => {
+    (async () => {
+      let s = null, prefs = null;
+      try { const r = await storage.get("verum-canvas-v1"); s = r ? JSON.parse(r.value) : null; }
+      catch (e) { /* chave inexistente na primeira execução — esperado */ }
+      try { const r = await storage.get("verum-canvas-prefs"); prefs = r ? JSON.parse(r.value) : null; } catch (e) {}
+      if (prefs) { if (prefs.dark != null) setDark(prefs.dark); if (prefs.user) setUser(prefs.user); }
+      setState(migrate(s));
+      loaded.current = true;
+    })().catch(() => { setLoadError(true); setState(seedState()); loaded.current = true; });
+  }, []);
+
+  /* ---- salvar (debounce + tratamento de erro) ---- */
+  useEffect(() => {
+    if (!loaded.current || !state) return;
+    clearTimeout(saveT.current);
+    saveT.current = setTimeout(async () => {
+      try { await storage.set("verum-canvas-v1", JSON.stringify(state)); }
+      catch (e) { toast("Falha ao salvar — tente novamente", "err"); }
+    }, 500);
+    return () => clearTimeout(saveT.current);
+  }, [state, toast]);
+  useEffect(() => {
+    if (!loaded.current) return;
+    (async () => { try { await storage.set("verum-canvas-prefs", JSON.stringify({ dark, user })); } catch (e) {} })();
+  }, [dark, user]);
+
+  /* ---- atalhos de teclado ---- */
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        if (confirmBox) return setConfirmBox(null);
+        if (taskModal) return setTaskModal(null);
+        if (projectModal) return setProjectModal(null);
+        if (openTask) return setOpenTask(null);
+        if (openProject) return setOpenProject(null);
+      }
+      const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
+      if (typing) return;
+      if (e.key === "/") { e.preventDefault(); searchRef.current?.focus(); }
+      if (e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        if (openProject) setTaskModal({ pid: openProject });
+        else setProjectModal({ mode: "create" });
+      }
+      if (e.key.toLowerCase() === "d") { setView("dashboard"); setOpenProject(null); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirmBox, taskModal, projectModal, openTask, openProject]);
+
+  /* ---- mutações com histórico (append-only) ---- */
+  const update = useCallback((fn, logText) => {
+    setState((s) => {
+      const next = fn(structuredClone(s));
+      if (logText) next.history = [{ ts: NOW(), user, text: logText }, ...next.history];
+      return next;
+    });
+  }, [user]);
+
+  const setTask = useCallback((pid, tid, patch, logText) =>
+    update((s) => {
+      const tk = s.projects.find((x) => x.id === pid)?.tasks.find((x) => x.id === tid);
+      if (tk) Object.assign(tk, patch, { updatedAt: NOW() });
+      return s;
+    }, logText), [update]);
+
+  const toggleStatus = useCallback((pid, tid, target) => {
+    setState((s) => {
+      const next = structuredClone(s);
+      const p = next.projects.find((x) => x.id === pid);
+      const tk = p?.tasks.find((x) => x.id === tid);
+      if (!tk) return s;
+      const ns = tk.status === target ? "nao" : target;   // exclusão mútua
+      Object.assign(tk, { status: ns, updatedAt: NOW() });
+      next.history = [{ ts: NOW(), user, text: `${STATUS[ns].label}: "${tk.name}" em ${p.name}` }, ...next.history];
+      return next;
+    });
+  }, [user]);
+
+  /* ---- derivados ---- */
+  const effStatus = (tk) => (tk.status !== "concluido" && tk.deadline && daysDiff(tk.deadline) < 0) ? "atrasado" : tk.status;
+
+  const allTasks = useMemo(() => !state ? [] :
+    state.projects.filter((p) => !p.archived).flatMap((p) =>
+      p.tasks.filter((tk) => !tk.archived).map((tk) => ({ ...tk, pid: p.id, pname: p.name, pcolor: p.color }))),
+    [state]);
+
+  const resps = useMemo(() => [...new Set(allTasks.map((x) => x.resp))].sort(), [allTasks]);
+
+  const matches = useCallback((tk) => {
+    const q = filters.q.trim().toLowerCase();
+    if (q && !(tk.name + " " + (tk.desc || "") + " " + (tk.notes || "") + " " + tk.resp + " " + (tk.tags || []).join(" ")).toLowerCase().includes(q)) return false;
+    if (filters.status !== "todos" && effStatus(tk) !== filters.status) return false;
+    if (filters.prio !== "todas" && tk.prio !== filters.prio) return false;
+    if (filters.resp !== "todos" && tk.resp !== filters.resp) return false;
+    return true;
+  }, [filters]);
+
+  const stats = useMemo(() => {
+    const total = allTasks.length;
+    const done = allTasks.filter((x) => x.status === "concluido").length;
+    const doing = allTasks.filter((x) => x.status === "andamento").length;
+    const late = allTasks.filter((x) => effStatus(x) === "atrasado").length;
+    const wait = allTasks.filter((x) => effStatus(x) === "aguardando").length;
+    const nao = total - done - doing - late - wait;
+    return { total, done, doing, late, wait, nao, pct: total ? Math.round((done / total) * 100) : 0 };
+  }, [allTasks]);
+
+  const ranking = useMemo(() => {
+    const m = {};
+    (state?.history || []).forEach((h) => { if (h.text.startsWith("Concluído")) m[h.user] = (m[h.user] || 0) + 1; });
+    return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  }, [state]);
+
+  /* ---- prioridades ---- */
+  const prioCount = useMemo(() =>
+    !state ? 0 : state.projects.filter((p) => !p.archived && state.favorites.includes(p.id)).length,
+    [state]);
+  const togglePriority = useCallback((pid) => {
+    setState((s) => {
+      const next = structuredClone(s);
+      const p = next.projects.find((x) => x.id === pid);
+      const isFav = next.favorites.includes(pid);
+      next.favorites = isFav ? next.favorites.filter((x) => x !== pid) : [...next.favorites, pid];
+      next.history = [{ ts: NOW(), user, text: isFav ? `Removeu prioridade de "${p.name}"` : `Marcou "${p.name}" como PRIORIDADE` }, ...next.history];
+      return next;
+    });
+  }, [user]);
+
+  /* ---- CRUD de projeto ---- */
+  const saveProject = (data, pid) => {
+    if (pid) {
+      update((s) => { const p = s.projects.find((x) => x.id === pid); Object.assign(p, data); return s; }, `Editou o projeto "${data.name}"`);
+      toast("Projeto atualizado");
+    } else {
+      update((s) => { s.projects.push({ id: uid(), ...data, archived: false, createdAt: NOW(), tasks: [] }); return s; }, `Criou o projeto "${data.name}"`);
+      toast(`Projeto "${data.name}" criado`);
+    }
+    setProjectModal(null);
+  };
+  const archiveProject = (pid, val) => {
+    const p = state.projects.find((x) => x.id === pid);
+    update((s) => { s.projects.find((x) => x.id === pid).archived = val; return s; },
+      `${val ? "Arquivou" : "Restaurou"} o projeto "${p.name}"`);
+    toast(val ? "Projeto arquivado" : "Projeto restaurado");
+    if (val) setOpenProject(null);
+  };
+  const deleteProject = (pid) => {
+    const p = state.projects.find((x) => x.id === pid);
+    setConfirmBox({
+      msg: `Excluir o projeto "${p.name}" e suas ${p.tasks.length} tarefas? O histórico será mantido.`,
+      onYes: () => {
+        update((s) => { s.projects = s.projects.filter((x) => x.id !== pid); return s; }, `Excluiu o projeto "${p.name}"`);
+        setOpenProject(null); setConfirmBox(null); toast("Projeto excluído");
+      },
+    });
+  };
+
+  /* ---- CRUD de tarefa ---- */
+  const createTask = (pid, data) => {
+    const p = state.projects.find((x) => x.id === pid);
+    update((s) => { s.projects.find((x) => x.id === pid).tasks.push(blankTask({ ...data, resp: data.resp || user })); return s; },
+      `Criou a tarefa "${data.name}" em ${p.name}`);
+    setTaskModal(null); toast(`Tarefa criada em ${p.name}`);
+  };
+  const deleteTask = (pid, tid) => {
+    const p = state.projects.find((x) => x.id === pid);
+    const tk = p.tasks.find((x) => x.id === tid);
+    setConfirmBox({
+      msg: `Excluir a tarefa "${tk.name}"? O histórico será mantido.`,
+      onYes: () => {
+        update((s) => { const sp = s.projects.find((x) => x.id === pid); sp.tasks = sp.tasks.filter((x) => x.id !== tid); return s; },
+          `Excluiu "${tk.name}" de ${p.name}`);
+        setOpenTask(null); setConfirmBox(null); toast("Tarefa excluída");
+      },
+    });
+  };
+
+  /* ---- drag & drop (funciona mesmo com filtros ativos) ---- */
+  const dropTask = (pid, targetId) => {
+    if (!dragId || dragId === targetId) { setDragId(null); setDragOver(null); return; }
+    update((s) => {
+      const arr = s.projects.find((x) => x.id === pid).tasks;
+      const from = arr.findIndex((x) => x.id === dragId);
+      if (from < 0) return s;
+      const [moved] = arr.splice(from, 1);
+      const to = arr.findIndex((x) => x.id === targetId);
+      arr.splice(to < 0 ? arr.length : to, 0, moved);
+      return s;
+    });
+    setDragId(null); setDragOver(null);
+  };
+
+  /* ---- exportar CSV ---- */
+  const exportCSV = () => {
+    try {
+      const rows = [["Projeto","Tarefa","Status","Prioridade","Urgente","Responsável","Início","Prazo","Criada em","Última alteração","Etiquetas","Observações"]];
+      state.projects.forEach((p) => p.tasks.forEach((tk) =>
+        rows.push([p.name, tk.name, STATUS[effStatus(tk)].label, PRIO[tk.prio], tk.urgent ? "Sim" : "Não",
+          tk.resp, fmtD(tk.startDate), fmtD(tk.deadline), fmtD(tk.createdAt), fmtDT(tk.updatedAt), (tk.tags||[]).join(", "), tk.notes])));
+      const csv = rows.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(";")).join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv" }));
+      a.download = "verum-canvas.csv"; a.click(); URL.revokeObjectURL(a.href);
+      toast("Exportado: verum-canvas.csv");
+    } catch (e) { toast("Falha ao exportar", "err"); }
+  };
+
+  /* ---- skeleton de carregamento ---- */
+  if (!state) return (
+    <div style={{ background: THEMES.dark.bg, minHeight: "100vh", padding: 20 }}>
+      <style>{`@keyframes vpulse{0%,100%{opacity:.35}50%{opacity:.7}}`}</style>
+      <div className="mx-auto max-w-6xl space-y-3">
+        {[52, 120, 90, 90, 90].map((h, i) => (
+          <div key={i} style={{ height: h, borderRadius: 16, background: THEMES.dark.surface, animation: `vpulse 1.4s ease ${i * 0.12}s infinite` }} />
+        ))}
+      </div>
+    </div>
+  );
+
+  const project = state.projects.find((p) => p.id === openProject);
+  const modalTask = openTask ? state.projects.find((p) => p.id === openTask.pid)?.tasks.find((x) => x.id === openTask.tid) : null;
+  const pieData = [
+    { name: "Concluído", value: stats.done, color: STATUS.concluido.color },
+    { name: "Em andamento", value: stats.doing, color: STATUS.andamento.color },
+    { name: "Atrasado", value: stats.late, color: STATUS.atrasado.color },
+    { name: "Aguardando", value: stats.wait, color: STATUS.aguardando.color },
+    { name: "Não iniciado", value: stats.nao, color: STATUS.nao.color },
+  ].filter((x) => x.value > 0);
+
+  return (
+    <div style={{ background: t.bg, color: t.text, minHeight: "100vh", fontFamily: "'Inter', system-ui, sans-serif", transition: "background .3s,color .3s" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
+        *::-webkit-scrollbar{width:8px;height:8px} *::-webkit-scrollbar-thumb{background:${t.borderSoft};border-radius:8px}
+        .vfade{animation:vfade .3s cubic-bezier(.4,0,.2,1)} @keyframes vfade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+        .vspin{animation:vspin .7s linear infinite} @keyframes vspin{to{transform:rotate(360deg)}}
+        @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+        input,select,textarea{outline:none} button{cursor:pointer}
+        button:focus-visible,a:focus-visible{outline:2px solid ${t.gold};outline-offset:2px}
+        .vhover{transition:transform .18s,box-shadow .18s,border-color .18s} .vhover:hover{transform:translateY(-2px)}
+      `}</style>
+
+      {/* ===== HEADER ===== */}
+      <header className="sticky top-0 z-30 border-b px-4 py-3 backdrop-blur-md" style={{ background: t.glass, borderColor: t.borderSoft }}>
+        <div className="mx-auto flex max-w-6xl items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-bold"
+            style={{ background: t.goldSoft, color: t.gold, border: `1px solid ${t.border}`, fontFamily: "'Sora',sans-serif" }}>V</div>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif", letterSpacing: ".02em" }}>
+              VERUM <span style={{ color: t.gold }}>PROJECT CANVAS</span>
+            </div>
+            <div className="text-xs" style={{ color: t.dim }}>{stats.pct}% do ecossistema concluído</div>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <div className="hidden items-center gap-1 rounded-lg px-2 py-1 sm:flex" style={{ background: t.surface2 }}>
+              <User size={13} color={t.dim} />
+              <input value={user} onChange={(e) => setUser(e.target.value)} onBlur={(e) => { if (!e.target.value.trim()) setUser("Verum"); }}
+                className="w-20 bg-transparent text-xs" style={{ color: t.text }} title="Seu nome (histórico e ranking)" />
+            </div>
+            <button onClick={exportCSV} className="rounded-lg p-2" style={{ background: t.surface2 }} title="Exportar Excel (CSV)">
+              <Download size={16} color={t.dim} />
+            </button>
+            <button onClick={() => setDark(!dark)} className="rounded-lg p-2" style={{ background: t.surface2 }} title="Alternar tema">
+              {dark ? <Sun size={16} color={t.gold} /> : <Moon size={16} color={t.gold} />}
+            </button>
+          </div>
+        </div>
+        <nav className="mx-auto mt-3 flex max-w-6xl gap-1 overflow-x-auto">
+          {[["dashboard","Dashboard",LayoutDashboard],["projects","Projetos",FolderKanban],["prazos","Prazos",CalendarClock],["history","Histórico",History]].map(([k,lb,Ic]) => {
+            const active = view === k && !openProject;
+            return (
+              <button key={k} onClick={() => { setView(k); setOpenProject(null); }}
+                className="flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-all"
+                style={{ background: active ? t.goldSoft : "transparent", color: active ? t.gold : t.dim, border: `1px solid ${active ? t.border : "transparent"}` }}>
+                <Ic size={14} /> {lb}
+              </button>
+            );
+          })}
+          <span className="ml-auto hidden items-center gap-1 text-xs md:flex" style={{ color: t.dim }}>
+            <Keyboard size={12} /> N: novo · /: buscar · Esc: fechar
+          </span>
+        </nav>
+      </header>
+
+      <main className="mx-auto max-w-6xl px-4 py-5 pb-24">
+
+        {/* ===== DASHBOARD ===== */}
+        {view === "dashboard" && !openProject && (
+          <div className="vfade space-y-5">
+            {loadError && (
+              <div className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm" style={{ borderColor: t.danger + "66", color: t.danger }}>
+                <AlertCircle size={15} /> Não foi possível carregar os dados salvos — exibindo o canvas padrão.
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+              {[
+                ["Projetos", state.projects.filter((p) => !p.archived).length, FolderKanban, t.gold],
+                ["Tarefas", stats.total, ListChecks, t.text],
+                ["Concluídas", stats.done, Check, STATUS.concluido.color],
+                ["Em andamento", stats.doing, Activity, STATUS.andamento.color],
+                ["Atrasadas", stats.late, Flame, STATUS.atrasado.color],
+              ].map(([lb, v, Ic, c]) => (
+                <div key={lb} className="vhover rounded-2xl border p-4" style={{ background: t.surface, borderColor: t.borderSoft, boxShadow: t.shadow }}>
+                  <Ic size={16} color={c} />
+                  <div className="mt-2 text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: c }}>{v}</div>
+                  <div className="text-xs" style={{ color: t.dim }}>{lb}</div>
+                </div>
+              ))}
+              {/* Card Prioridades — clicável, filtra a lista de projetos */}
+              <button onClick={() => { setOnlyPriority(true); setView("projects"); setOpenProject(null); }}
+                title="Ver apenas os projetos prioritários"
+                className="vhover rounded-2xl border p-4 text-left"
+                style={{ background: prioCount > 0 ? t.goldSoft : t.surface, borderColor: prioCount > 0 ? t.border : t.borderSoft, boxShadow: t.shadow }}>
+                <Star size={16} color={t.gold} fill={prioCount > 0 ? t.gold : "none"} />
+                <div className="mt-2 text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{prioCount}</div>
+                <div className="text-xs" style={{ color: t.dim }}>Prioridades</div>
+              </button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border p-5" style={{ background: t.surface, borderColor: t.border, boxShadow: t.shadow }}>
+                <div className="flex items-center gap-4">
+                  <Ring pct={stats.pct} size={72} stroke={7} t={t} />
+                  <div className="flex-1">
+                    <div className="flex items-baseline justify-between">
+                      <div className="text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif" }}>Progresso geral</div>
+                      <div className="text-xl font-bold" style={{ color: t.gold, fontFamily: "'Sora',sans-serif" }}>{stats.pct}%</div>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full" style={{ background: t.surface2 }}>
+                      <div className="h-full rounded-full" style={{ width: stats.pct + "%", background: `linear-gradient(90deg, ${t.gold}, #F0D77B)`, transition: "width .6s" }} />
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: t.dim }}>
+                      <span>✓ {stats.done} concluídas</span>
+                      <span style={{ color: STATUS.andamento.color }}>● {stats.doing} em andamento</span>
+                      {stats.late > 0 && <span style={{ color: STATUS.atrasado.color }}>● {stats.late} atrasadas</span>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border p-4" style={{ background: t.surface, borderColor: t.borderSoft }}>
+                <div className="mb-1 text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif" }}>Distribuição por status</div>
+                <div className="flex items-center gap-3">
+                  <div style={{ width: 130, height: 130 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={pieData} dataKey="value" innerRadius={38} outerRadius={58} paddingAngle={3} stroke="none">
+                          {pieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                        </Pie>
+                        <RTooltip contentStyle={{ background: t.surface, border: `1px solid ${t.borderSoft}`, borderRadius: 10, color: t.text, fontSize: 12 }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="space-y-1 text-xs">
+                    {pieData.map((e) => (
+                      <div key={e.name} className="flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full" style={{ background: e.color }} />
+                        <span style={{ color: t.dim }}>{e.name}</span>
+                        <span className="font-semibold" style={{ color: e.color }}>{e.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border p-4" style={{ background: t.surface, borderColor: t.borderSoft }}>
+                <div className="mb-3 flex items-center gap-2 text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif" }}>
+                  <History size={15} color={t.gold} /> Últimas atualizações
+                </div>
+                <div className="space-y-2.5">
+                  {state.history.slice(0, 7).map((h, i) => (
+                    <div key={i} className="flex gap-2 text-xs">
+                      <div className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: t.gold }} />
+                      <div className="min-w-0">
+                        <div className="truncate" style={{ color: t.text }}>{h.text}</div>
+                        <div style={{ color: t.dim }}>{h.user} · {fmtDT(h.ts)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-2xl border p-4" style={{ background: t.surface, borderColor: t.borderSoft }}>
+                <div className="mb-3 flex items-center gap-2 text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif" }}>
+                  <Trophy size={15} color={t.gold} /> Ranking de produtividade
+                </div>
+                {ranking.length === 0
+                  ? <div className="text-xs" style={{ color: t.dim }}>Conclua tarefas para gerar o ranking da equipe. O nome no topo da tela identifica quem concluiu.</div>
+                  : ranking.map(([name, n], i) => (
+                    <div key={name} className="flex items-center gap-3 rounded-lg px-2 py-1.5" style={{ background: i === 0 ? t.goldSoft : "transparent" }}>
+                      <span className="w-5 text-center text-sm font-bold" style={{ color: i === 0 ? t.gold : t.dim, fontFamily: "'Sora',sans-serif" }}>{i + 1}</span>
+                      <span className="flex-1 truncate text-sm">{name}</span>
+                      <span className="text-xs font-semibold" style={{ color: t.gold }}>{n} concluída{n > 1 ? "s" : ""}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif" }}>
+                Projetos {prioCount > 0 && <span className="text-xs font-normal" style={{ color: t.dim }}>· prioridades primeiro</span>}
+              </div>
+              <div className="space-y-2">
+                {[...state.projects].filter((p) => !p.archived)
+                  .sort((a, b) => Number(state.favorites.includes(b.id)) - Number(state.favorites.includes(a.id)))
+                  .map((p) => {
+                  const ts = p.tasks.filter((x) => !x.archived);
+                  const pct = ts.length ? Math.round(ts.filter((x) => x.status === "concluido").length / ts.length * 100) : 0;
+                  return (
+                    <div key={p.id} onClick={() => { setOpenProject(p.id); setView("projects"); }} role="button" tabIndex={0}
+                      onKeyDown={(e) => e.key === "Enter" && (setOpenProject(p.id), setView("projects"))}
+                      className="vhover flex w-full cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-left"
+                      style={{ background: state.favorites.includes(p.id) ? t.goldSoft : t.surface, borderColor: state.favorites.includes(p.id) ? t.border : t.borderSoft }}>
+                      <button title={state.favorites.includes(p.id) ? "Remover prioridade" : "Marcar como prioridade"}
+                        onClick={(e) => { e.stopPropagation(); togglePriority(p.id); }} className="shrink-0">
+                        <Star size={14} color={t.gold} fill={state.favorites.includes(p.id) ? t.gold : "none"} />
+                      </button>
+                      <PIcon name={p.icon} size={14} color={p.color} />
+                      <span className="w-24 shrink-0 truncate text-xs font-semibold" style={{ color: p.color }}>{p.code}</span>
+                      <div className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ background: t.surface2 }}>
+                        <div className="h-full rounded-full" style={{ width: pct + "%", background: p.color }} />
+                      </div>
+                      <span className="w-10 text-right text-xs font-semibold" style={{ color: t.dim }}>{pct}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===== GRID DE PROJETOS ===== */}
+        {view === "projects" && !openProject && (
+          <div className="vfade">
+            <div className="mb-4 flex items-center gap-2">
+              <div className="flex flex-1 items-center gap-2 rounded-xl border px-3 py-2" style={{ background: t.surface, borderColor: t.borderSoft }}>
+                <Search size={15} color={t.dim} />
+                <input ref={searchRef} placeholder="Pesquisar em todos os projetos…  ( / )" value={filters.q}
+                  onChange={(e) => setFilters({ ...filters, q: e.target.value })}
+                  className="w-full bg-transparent text-sm" style={{ color: t.text }} />
+                {filters.q && <button onClick={() => setFilters({ ...filters, q: "" })}><X size={14} color={t.dim} /></button>}
+              </div>
+              <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)}
+                title="Filtrar por categoria"
+                className="rounded-xl border px-2 py-2 text-sm"
+                style={{ background: catFilter ? t.goldSoft : t.surface, borderColor: catFilter ? t.border : t.borderSoft, color: catFilter ? t.text : t.dim }}>
+                <option value="">Todas as categorias</option>
+                {P_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                <option value="__none__">Sem categoria</option>
+              </select>
+              <button onClick={() => setOnlyPriority(!onlyPriority)}
+                title={onlyPriority ? "Mostrar todos os projetos" : "Mostrar só prioridades"}
+                className="rounded-xl border p-2"
+                style={{ background: onlyPriority ? t.goldSoft : t.surface, borderColor: onlyPriority ? t.border : t.borderSoft }}>
+                <Star size={16} color={t.gold} fill={onlyPriority ? t.gold : "none"} />
+              </button>
+              <Btn kind="primary" t={t} onClick={() => setProjectModal({ mode: "create" })}><Plus size={16} /> Projeto</Btn>
+            </div>
+
+            {onlyPriority && (
+              <div className="vfade mb-3 flex items-center gap-2 rounded-xl border px-3 py-2 text-sm"
+                style={{ background: t.goldSoft, borderColor: t.border, color: t.gold }}>
+                <Star size={14} fill={t.gold} />
+                <span className="flex-1">Foco: mostrando apenas os {prioCount} projeto{prioCount === 1 ? "" : "s"} prioritário{prioCount === 1 ? "" : "s"}</span>
+                <button onClick={() => setOnlyPriority(false)} className="flex items-center gap-1 text-xs font-semibold">
+                  <X size={13} /> Limpar
+                </button>
+              </div>
+            )}
+            {onlyPriority && prioCount === 0 && (
+              <div className="rounded-2xl border p-8 text-center" style={{ background: t.surface, borderColor: t.borderSoft }}>
+                <Star size={28} color={t.gold} className="mx-auto mb-2" />
+                <div className="text-sm" style={{ color: t.dim }}>Nenhum projeto marcado como prioridade ainda.</div>
+                <div className="mt-1 text-xs" style={{ color: t.dim }}>Toque na estrela de um projeto para colocá-lo em foco.</div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {[...state.projects].filter((p) => !p.archived)
+                .sort((a, b) => Number(state.favorites.includes(b.id)) - Number(state.favorites.includes(a.id)))
+                .map((p) => {
+                const ts = p.tasks.filter((x) => !x.archived);
+                const done = ts.filter((x) => x.status === "concluido").length;
+                const doing = ts.filter((x) => x.status === "andamento").length;
+                const late = ts.filter((x) => effStatus(x) === "atrasado").length;
+                const pct = ts.length ? Math.round(done / ts.length * 100) : 0;
+                const fav = state.favorites.includes(p.id);
+                if (onlyPriority && !fav) return null;
+                if (catFilter === "__none__" ? p.category : catFilter && p.category !== catFilter) return null;
+                if (filters.q && !ts.some(matches) && !p.name.toLowerCase().includes(filters.q.toLowerCase())) return null;
+                return (
+                  <div key={p.id} onClick={() => setOpenProject(p.id)} role="button" tabIndex={0}
+                    onKeyDown={(e) => e.key === "Enter" && setOpenProject(p.id)}
+                    className="vhover cursor-pointer rounded-2xl border p-4"
+                    style={{ background: t.surface, borderColor: fav ? p.color + "66" : t.borderSoft, boxShadow: t.shadow }}>
+                    <div className="flex items-start gap-3">
+                      <div className="relative">
+                        <Ring pct={pct} t={t} color={p.color} />
+                        <PIcon name={p.icon} size={16} color={p.color} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <div className="truncate text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif" }}>{p.name}</div>
+                          <button title={fav ? "Remover prioridade" : "Marcar como prioridade"} onClick={(e) => { e.stopPropagation(); togglePriority(p.id); }}>
+                            <Star size={13} color={t.gold} fill={fav ? t.gold : "none"} />
+                          </button>
+                          <button title="Editar projeto" className="ml-auto" onClick={(e) => { e.stopPropagation(); setProjectModal({ mode: "edit", pid: p.id }); }}>
+                            <Pencil size={13} color={t.dim} />
+                          </button>
+                        </div>
+                        <div className="text-xs" style={{ color: t.dim }}>{done}/{ts.length} tarefas · {pct}%</div>
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {p.category && <span className="rounded-full px-1.5 py-0.5 text-xs font-medium" style={{ background: p.color + "22", color: p.color }}>{p.category}</span>}
+                          {doing > 0 && <span className="rounded-full px-1.5 py-0.5 text-xs" style={{ background: STATUS.andamento.color + "22", color: STATUS.andamento.color }}>{doing} em andamento</span>}
+                          {late > 0 && <span className="rounded-full px-1.5 py-0.5 text-xs" style={{ background: STATUS.atrasado.color + "22", color: STATUS.atrasado.color }}>{late} atrasada{late > 1 ? "s" : ""}</span>}
+                          {ts.length === 0 && <span className="text-xs" style={{ color: t.dim }}>Sem tarefas — toque para começar</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {catFilter && state.projects.filter((p) => !p.archived && (catFilter === "__none__" ? !p.category : p.category === catFilter)).length === 0 && (
+              <div className="rounded-2xl border p-8 text-center" style={{ background: t.surface, borderColor: t.borderSoft }}>
+                <div className="text-sm" style={{ color: t.dim }}>
+                  Nenhum projeto {catFilter === "__none__" ? "sem categoria" : `na categoria "${catFilter}"`}.
+                </div>
+                <button onClick={() => setCatFilter("")} className="mt-2 text-xs font-semibold" style={{ color: t.gold }}>
+                  Limpar filtro
+                </button>
+              </div>
+            )}
+
+            {/* arquivados */}
+            {state.projects.some((p) => p.archived) && (
+              <div className="mt-6">
+                <button onClick={() => setShowArchived(!showArchived)} className="flex items-center gap-1.5 text-xs font-medium" style={{ color: t.dim }}>
+                  <Archive size={13} /> Arquivados ({state.projects.filter((p) => p.archived).length}) {showArchived ? "▾" : "▸"}
+                </button>
+                {showArchived && (
+                  <div className="mt-2 space-y-1.5">
+                    {state.projects.filter((p) => p.archived).map((p) => (
+                      <div key={p.id} className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm" style={{ background: t.surface, borderColor: t.borderSoft, opacity: 0.75 }}>
+                        <PIcon name={p.icon} size={14} color={p.color} />
+                        <span className="flex-1 truncate">{p.name}</span>
+                        <Btn t={t} onClick={() => archiveProject(p.id, false)}><ArchiveRestore size={13} /> Restaurar</Btn>
+                        <Btn kind="danger" t={t} onClick={() => deleteProject(p.id)}><Trash2 size={13} /></Btn>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ===== DETALHE DO PROJETO ===== */}
+        {openProject && project && (
+          <div className="vfade">
+            <button onClick={() => setOpenProject(null)} className="mb-3 flex items-center gap-1 text-sm" style={{ color: t.dim }}>
+              <ChevronLeft size={16} /> Projetos
+            </button>
+            {(() => {
+              const ts = project.tasks.filter((x) => !x.archived);
+              const done = ts.filter((x) => x.status === "concluido").length;
+              const pct = ts.length ? Math.round(done / ts.length * 100) : 0;
+              return (
+                <div className="mb-4 rounded-2xl border p-4" style={{ background: t.surface, borderColor: project.color + "44", boxShadow: t.shadow }}>
+                  <div className="flex items-center gap-4">
+                    <div className="relative">
+                      <Ring pct={pct} size={62} stroke={6} t={t} color={project.color} />
+                      <PIcon name={project.icon} size={18} color={project.color} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-base font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{project.name}</div>
+                      <div className="text-xs" style={{ color: t.dim }}>{done} concluídas · {ts.filter((x) => x.status === "andamento").length} em andamento · {ts.length} no total</div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: t.surface2 }}>
+                        <div className="h-full rounded-full" style={{ width: pct + "%", background: project.color, transition: "width .5s" }} />
+                      </div>
+                    </div>
+                    <Btn kind="primary" t={t} onClick={() => setTaskModal({ pid: project.id })}><Plus size={15} /> Tarefa</Btn>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2 border-t pt-3" style={{ borderColor: t.borderSoft }}>
+                    <Btn t={t} onClick={() => setProjectModal({ mode: "edit", pid: project.id })}><Pencil size={13} /> Editar</Btn>
+                    <Btn t={t} onClick={() => archiveProject(project.id, true)}><Archive size={13} /> Arquivar</Btn>
+                    <Btn kind="danger" t={t} onClick={() => deleteProject(project.id)}><Trash2 size={13} /> Excluir</Btn>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className="mb-3 flex items-center gap-2">
+              <div className="flex flex-1 items-center gap-2 rounded-xl border px-3 py-2" style={{ background: t.surface, borderColor: t.borderSoft }}>
+                <Search size={14} color={t.dim} />
+                <input ref={searchRef} placeholder="Pesquisar tarefas…  ( / )" value={filters.q}
+                  onChange={(e) => setFilters({ ...filters, q: e.target.value })}
+                  className="w-full bg-transparent text-sm" style={{ color: t.text }} />
+                {filters.q && <button onClick={() => setFilters({ ...filters, q: "" })}><X size={14} color={t.dim} /></button>}
+              </div>
+              <button onClick={() => setShowFilters(!showFilters)} className="rounded-xl border p-2"
+                style={{ background: showFilters ? t.goldSoft : t.surface, borderColor: showFilters ? t.border : t.borderSoft }}>
+                <Filter size={16} color={showFilters ? t.gold : t.dim} />
+              </button>
+            </div>
+            {showFilters && (
+              <div className="vfade mb-3 flex flex-wrap gap-2">
+                {[
+                  ["status", ["todos", ...Object.keys(STATUS)], (k) => k === "todos" ? "Todos os status" : STATUS[k].label],
+                  ["prio", ["todas", "baixa", "media", "alta"], (k) => k === "todas" ? "Todas prioridades" : PRIO[k]],
+                  ["resp", ["todos", ...resps], (k) => k === "todos" ? "Todos responsáveis" : k],
+                ].map(([key, opts, lb]) => (
+                  <select key={key} value={filters[key]} onChange={(e) => setFilters({ ...filters, [key]: e.target.value })}
+                    className="rounded-lg border px-2 py-1.5 text-xs" style={{ background: t.surface, color: t.text, borderColor: t.borderSoft }}>
+                    {opts.map((o) => <option key={o} value={o}>{lb(o)}</option>)}
+                  </select>
+                ))}
+              </div>
+            )}
+
+            {(() => {
+              const visible = project.tasks.filter((x) => !x.archived && matches(x));
+              if (project.tasks.filter((x) => !x.archived).length === 0) return (
+                <div className="rounded-2xl border p-8 text-center" style={{ background: t.surface, borderColor: t.borderSoft }}>
+                  <ListChecks size={28} color={t.dim} className="mx-auto mb-2" />
+                  <div className="text-sm" style={{ color: t.dim }}>Este projeto ainda não tem tarefas.</div>
+                  <div className="mt-3"><Btn kind="primary" t={t} onClick={() => setTaskModal({ pid: project.id })}><Plus size={14} /> Criar a primeira tarefa</Btn></div>
+                </div>
+              );
+              if (visible.length === 0) return (
+                <div className="rounded-2xl border p-6 text-center text-sm" style={{ background: t.surface, borderColor: t.borderSoft, color: t.dim }}>
+                  Nenhuma tarefa corresponde à pesquisa ou aos filtros. Ajuste os filtros para ver as tarefas.
+                </div>
+              );
+              return (
+                <div className="space-y-1.5">
+                  {visible.map((tk) => {
+                    const es = effStatus(tk);
+                    const dd = daysDiff(tk.deadline);
+                    const doneSub = tk.subtasks.filter((s) => s.done).length;
+                    return (
+                      <div key={tk.id} draggable
+                        onDragStart={(e) => { setDragId(tk.id); e.dataTransfer.effectAllowed = "move"; }}
+                        onDragOver={(e) => { e.preventDefault(); setDragOver(tk.id); }}
+                        onDragLeave={() => setDragOver((d) => d === tk.id ? null : d)}
+                        onDrop={(e) => { e.preventDefault(); dropTask(project.id, tk.id); }}
+                        onDragEnd={() => { setDragId(null); setDragOver(null); }}
+                        className="group flex items-center gap-2 rounded-xl border px-2.5 py-2.5 transition-all"
+                        style={{
+                          background: t.surface,
+                          borderColor: dragOver === tk.id ? t.gold : tk.urgent ? STATUS.atrasado.color + "55" : t.borderSoft,
+                          opacity: dragId === tk.id ? 0.4 : tk.status === "concluido" ? 0.65 : 1,
+                        }}>
+                        <GripVertical size={14} color={t.dim} className="shrink-0 cursor-grab opacity-40 group-hover:opacity-100" />
+                        <Box checked={tk.status === "andamento"} color={STATUS.andamento.color} label="Em andamento" t={t}
+                          onClick={() => toggleStatus(project.id, tk.id, "andamento")} />
+                        <Box checked={tk.status === "concluido"} color={STATUS.concluido.color} label="Concluído" t={t}
+                          onClick={() => toggleStatus(project.id, tk.id, "concluido")} />
+                        <button onClick={() => setOpenTask({ pid: project.id, tid: tk.id })} className="min-w-0 flex-1 text-left">
+                          <div className="flex items-center gap-1.5">
+                            {tk.urgent && <Flame size={13} color={STATUS.atrasado.color} className="shrink-0" />}
+                            <span className="truncate text-sm" style={{ textDecoration: tk.status === "concluido" ? "line-through" : "none" }}>{tk.name}</span>
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs" style={{ color: t.dim }}>
+                            <Pill status={es} />
+                            {tk.resp !== "Equipe" && <span>· {tk.resp}</span>}
+                            {tk.subtasks.length > 0 && <span className="inline-flex items-center gap-0.5"><ListChecks size={11} /> {doneSub}/{tk.subtasks.length}</span>}
+                            {tk.tags.slice(0, 3).map((tag) => (
+                              <span key={tag} className="rounded px-1 py-0.5" style={{ background: t.goldSoft, color: t.gold }}>{tag}</span>
+                            ))}
+                            {tk.deadline && <span style={{ color: dd < 0 ? STATUS.atrasado.color : dd <= 3 ? STATUS.aguardando.color : t.dim }}>
+                              <Clock size={11} className="mb-0.5 mr-0.5 inline" />{dd < 0 ? `${-dd}d em atraso` : `${dd}d restantes`}
+                            </span>}
+                            {tk.notes && <span className="truncate italic">· {tk.notes}</span>}
+                          </div>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* tarefas arquivadas */}
+            {project.tasks.some((x) => x.archived) && (
+              <div className="mt-4 text-xs" style={{ color: t.dim }}>
+                {project.tasks.filter((x) => x.archived).map((tk) => (
+                  <div key={tk.id} className="flex items-center gap-2 py-1">
+                    <Archive size={12} /> <span className="flex-1 truncate line-through">{tk.name}</span>
+                    <button style={{ color: t.gold }} onClick={() => setTask(project.id, tk.id, { archived: false }, `Restaurou "${tk.name}"`)}>Restaurar</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ===== PRAZOS ===== */}
+        {view === "prazos" && !openProject && (
+          <div className="vfade">
+            <div className="mb-3 text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif" }}>Linha do tempo de prazos</div>
+            {(() => {
+              const withD = allTasks.filter((x) => x.deadline && x.status !== "concluido").sort((a, b) => a.deadline.localeCompare(b.deadline));
+              if (!withD.length) return (
+                <div className="rounded-2xl border p-6 text-center text-sm" style={{ background: t.surface, borderColor: t.borderSoft, color: t.dim }}>
+                  Nenhuma tarefa com prazo definido. Abra uma tarefa e defina um prazo para vê-la aqui — atrasos ficam vermelhos automaticamente.
+                </div>
+              );
+              return (
+                <div className="space-y-1.5">
+                  {withD.map((tk) => {
+                    const dd = daysDiff(tk.deadline);
+                    const c = dd < 0 ? STATUS.atrasado.color : dd <= 3 ? STATUS.aguardando.color : STATUS.andamento.color;
+                    return (
+                      <button key={tk.id} onClick={() => setOpenTask({ pid: tk.pid, tid: tk.id })}
+                        className="flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left" style={{ background: t.surface, borderColor: t.borderSoft }}>
+                        <div className="w-16 shrink-0 text-center">
+                          <div className="text-sm font-bold" style={{ color: c, fontFamily: "'Sora',sans-serif" }}>{fmtD(tk.deadline).slice(0, 5)}</div>
+                          <div className="text-xs" style={{ color: t.dim }}>{dd < 0 ? `${-dd}d atraso` : `em ${dd}d`}</div>
+                        </div>
+                        <div className="h-8 w-px" style={{ background: t.borderSoft }} />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm">{tk.name}</div>
+                          <div className="text-xs" style={{ color: t.dim }}>{tk.pname} · {tk.resp}</div>
+                        </div>
+                        <Pill status={effStatus(tk)} />
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ===== HISTÓRICO ===== */}
+        {view === "history" && !openProject && (
+          <div className="vfade">
+            <div className="mb-3 text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif" }}>Histórico completo — auditoria (nunca é apagado)</div>
+            <div className="space-y-1.5">
+              {state.history.map((h, i) => (
+                <div key={i} className="flex gap-3 rounded-xl border px-3 py-2 text-xs" style={{ background: t.surface, borderColor: t.borderSoft }}>
+                  <div className="w-28 shrink-0" style={{ color: t.dim }}>{fmtDT(h.ts)}</div>
+                  <div className="w-16 shrink-0 truncate font-semibold" style={{ color: t.gold }}>{h.user}</div>
+                  <div className="min-w-0 flex-1" style={{ color: t.text }}>{h.text}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* ===== MODAIS ===== */}
+      {projectModal && (
+        <ProjectModal t={t} state={state}
+          project={projectModal.mode === "edit" ? state.projects.find((p) => p.id === projectModal.pid) : null}
+          onClose={() => setProjectModal(null)} onSave={saveProject}
+          onArchive={(pid) => { archiveProject(pid, true); setProjectModal(null); }}
+          onDelete={(pid) => { setProjectModal(null); deleteProject(pid); }} />
+      )}
+      {taskModal && (
+        <TaskCreateModal t={t} state={state} defaultPid={taskModal.pid} user={user}
+          onClose={() => setTaskModal(null)} onSave={createTask} />
+      )}
+      {modalTask && (
+        <TaskDetailModal t={t} state={state} tk={modalTask} pid={openTask.pid} user={user}
+          effStatus={effStatus} setTask={setTask} toggleStatus={toggleStatus} update={update}
+          onClose={() => setOpenTask(null)} onDelete={() => deleteTask(openTask.pid, openTask.tid)}
+          onMoved={() => { setOpenTask(null); toast("Tarefa movida"); }}
+          onDuplicated={() => toast("Tarefa duplicada")}
+          onArchived={() => { setOpenTask(null); toast("Tarefa arquivada"); }} />
+      )}
+      {confirmBox && (
+        <Modal t={t} onClose={() => setConfirmBox(null)}>
+          <div className="flex items-start gap-3">
+            <AlertCircle size={20} color={t.danger} className="mt-0.5 shrink-0" />
+            <div className="text-sm">{confirmBox.msg}</div>
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <Btn t={t} onClick={() => setConfirmBox(null)}>Cancelar</Btn>
+            <Btn kind="danger" t={t} onClick={confirmBox.onYes}>Excluir</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {/* toasts */}
+      <div className="fixed bottom-5 left-1/2 z-[60] flex -translate-x-1/2 flex-col items-center gap-2">
+        {toasts.map((x) => (
+          <div key={x.id} className="vfade flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium"
+            style={{ background: t.surface, color: x.type === "err" ? t.danger : t.gold, borderColor: x.type === "err" ? t.danger + "66" : t.border, boxShadow: t.shadow }}>
+            {x.type === "err" ? <AlertCircle size={15} /> : <CheckCircle2 size={15} />} {x.msg}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ============ MODAL: CRIAR / EDITAR PROJETO ============ */
+function ProjectModal({ t, state, project, onClose, onSave, onArchive, onDelete }) {
+  const [name, setName] = useState(project?.name || "");
+  const [code, setCode] = useState(project?.code || "");
+  const [color, setColor] = useState(project?.color || P_COLORS[0]);
+  const [icon, setIcon] = useState(project?.icon || "FolderKanban");
+  const [category, setCategory] = useState(project?.category || "");
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+
+  const save = () => {
+    const e = {};
+    if (!name.trim()) e.name = "obrigatório";
+    else if (state.projects.some((p) => p.id !== project?.id && p.name.trim().toLowerCase() === name.trim().toLowerCase())) e.name = "já existe um projeto com esse nome";
+    setErrors(e);
+    if (Object.keys(e).length) return;
+    setBusy(true);
+    onSave({ name: name.trim(), code: (code.trim() || name.trim().slice(0, 10)).toUpperCase(), color, icon, category }, project?.id);
+  };
+
+  return (
+    <Modal t={t} onClose={onClose}>
+      <div className="mb-4 flex items-center justify-between">
+        <div className="text-base font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>
+          {project ? "Editar projeto" : "Novo projeto"}
+        </div>
+        <button onClick={onClose} className="rounded-lg p-1.5" style={{ background: t.surface2 }}><X size={16} color={t.dim} /></button>
+      </div>
+      <div className="space-y-3">
+        <Field label="Nome do projeto *" t={t} error={errors.name}>
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Verum Messenger"
+            onKeyDown={(e) => e.key === "Enter" && save()} style={inputStyle(t, errors.name)} />
+        </Field>
+        <Field label="Código (sigla exibida no dashboard)" t={t}>
+          <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="Ex.: MSG" maxLength={10} style={inputStyle(t)} />
+        </Field>
+        <Field label="Categoria" t={t}>
+          <select value={category} onChange={(e) => setCategory(e.target.value)} style={inputStyle(t)}>
+            <option value="">Sem categoria</option>
+            {P_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </Field>
+        <Field label="Cor" t={t}>
+          <div className="flex flex-wrap gap-2">
+            {P_COLORS.map((c) => (
+              <button key={c} onClick={() => setColor(c)} aria-label={c}
+                className="h-8 w-8 rounded-full transition-transform"
+                style={{ background: c, transform: color === c ? "scale(1.15)" : "scale(1)", boxShadow: color === c ? `0 0 0 2px ${t.surface}, 0 0 0 4px ${c}` : "none" }} />
+            ))}
+          </div>
+        </Field>
+        <Field label="Ícone" t={t}>
+          <div className="flex flex-wrap gap-2">
+            {Object.keys(P_ICONS).map((k) => (
+              <button key={k} onClick={() => setIcon(k)}
+                className="flex h-9 w-9 items-center justify-center rounded-xl border transition-all"
+                style={{ borderColor: icon === k ? color : t.borderSoft, background: icon === k ? color + "22" : t.surface2 }}>
+                <PIcon name={k} size={16} color={icon === k ? color : t.dim} />
+              </button>
+            ))}
+          </div>
+        </Field>
+      </div>
+      <div className="mt-5 flex flex-wrap items-center gap-2">
+        <Btn kind="primary" t={t} onClick={save} busy={busy}><Check size={15} /> {project ? "Salvar alterações" : "Criar projeto"}</Btn>
+        <Btn t={t} onClick={onClose}>Cancelar</Btn>
+        {project && (
+          <span className="ml-auto flex gap-2">
+            <Btn t={t} onClick={() => onArchive(project.id)} title="Arquivar"><Archive size={14} /></Btn>
+            <Btn kind="danger" t={t} onClick={() => onDelete(project.id)} title="Excluir"><Trash2 size={14} /></Btn>
+          </span>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/* ============ MODAL: CRIAR TAREFA ============ */
+function TaskCreateModal({ t, state, defaultPid, user, onClose, onSave }) {
+  const [pid, setPid] = useState(defaultPid || state.projects.find((p) => !p.archived)?.id);
+  const [f, setF] = useState({ name: "", desc: "", resp: user, prio: "media", status: "nao", startDate: "", deadline: "", notes: "" });
+  const [tags, setTags] = useState([]);
+  const [subtasks, setSubtasks] = useState([]);
+  const [attachments, setAttachments] = useState([]);
+  const [errors, setErrors] = useState({});
+  const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
+
+  const save = () => {
+    const e = {};
+    if (!f.name.trim()) e.name = "obrigatório";
+    if (!pid) e.pid = "selecione um projeto";
+    if (f.startDate && f.deadline && f.deadline < f.startDate) e.deadline = "anterior à data inicial";
+    setErrors(e);
+    if (Object.keys(e).length) return;
+    onSave(pid, { ...f, name: f.name.trim(), tags, attachments, subtasks: subtasks.map((n) => ({ id: uid(), name: n, done: false })) });
+  };
+
+  return (
+    <Modal t={t} onClose={onClose} wide>
+      <div className="mb-4 flex items-center justify-between">
+        <div className="text-base font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>Nova tarefa</div>
+        <button onClick={onClose} className="rounded-lg p-1.5" style={{ background: t.surface2 }}><X size={16} color={t.dim} /></button>
+      </div>
+      <div className="space-y-3">
+        <Field label="Projeto *" t={t} error={errors.pid}>
+          <select value={pid || ""} onChange={(e) => setPid(e.target.value)} style={inputStyle(t, errors.pid)}>
+            {state.projects.filter((p) => !p.archived).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Nome da tarefa *" t={t} error={errors.name}>
+          <input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="Ex.: Integração Ramp fiat/cripto"
+            onKeyDown={(e) => e.key === "Enter" && save()} style={inputStyle(t, errors.name)} />
+        </Field>
+        <Field label="Descrição" t={t}>
+          <textarea value={f.desc} onChange={(e) => set("desc", e.target.value)} rows={2} style={{ ...inputStyle(t), resize: "vertical" }} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Responsável" t={t}>
+            <input value={f.resp} onChange={(e) => set("resp", e.target.value)} style={inputStyle(t)} />
+          </Field>
+          <Field label="Prioridade" t={t}>
+            <select value={f.prio} onChange={(e) => set("prio", e.target.value)} style={{ ...inputStyle(t), color: PRIO_COLOR[f.prio] }}>
+              {Object.entries(PRIO).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </Field>
+          <Field label="Status" t={t}>
+            <select value={f.status} onChange={(e) => set("status", e.target.value)} style={inputStyle(t)}>
+              {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Data inicial" t={t}>
+            <input type="date" value={f.startDate} onChange={(e) => set("startDate", e.target.value)} style={inputStyle(t)} />
+          </Field>
+          <Field label="Prazo" t={t} error={errors.deadline}>
+            <input type="date" value={f.deadline} onChange={(e) => set("deadline", e.target.value)} style={inputStyle(t, errors.deadline)} />
+          </Field>
+        </div>
+        <Field label="Etiquetas" t={t}><TagInput t={t} tags={tags} setTags={setTags} /></Field>
+        <Field label="Checklist" t={t}><ListBuilder t={t} items={subtasks} setItems={setSubtasks} placeholder="Nova subtarefa + Enter" /></Field>
+        <Field label="Anexos (links)" t={t}><AttachmentInput t={t} items={attachments} setItems={setAttachments} /></Field>
+        <Field label="Observações" t={t}>
+          <textarea value={f.notes} onChange={(e) => set("notes", e.target.value)} rows={2} style={{ ...inputStyle(t), resize: "vertical" }} />
+        </Field>
+      </div>
+      <div className="mt-5 flex gap-2">
+        <Btn kind="primary" t={t} onClick={save}><Check size={15} /> Criar tarefa</Btn>
+        <Btn t={t} onClick={onClose}>Cancelar</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/* ============ MODAL: DETALHE DA TAREFA ============ */
+function TaskDetailModal({ t, state, tk, pid, user, effStatus, setTask, toggleStatus, update, onClose, onDelete, onMoved, onDuplicated, onArchived }) {
+  const es = effStatus(tk);
+  const dd = daysDiff(tk.deadline);
+  const pName = state.projects.find((p) => p.id === pid)?.name;
+  const nameOnOpen = useRef(tk.name);
+  const set = (patch, logText) => setTask(pid, tk.id, patch, logText);
+
+  return (
+    <Modal t={t} onClose={onClose} wide>
+      <div className="mb-1 flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs" style={{ color: t.dim }}>{pName}</div>
+          <input value={tk.name} onChange={(e) => set({ name: e.target.value })}
+            onBlur={() => { if (tk.name !== nameOnOpen.current && tk.name.trim()) { update((s) => s, `Renomeou "${nameOnOpen.current}" para "${tk.name}" em ${pName}`); nameOnOpen.current = tk.name; } }}
+            className="w-full bg-transparent text-base font-semibold" style={{ color: t.text, fontFamily: "'Sora',sans-serif" }} />
+        </div>
+        <button onClick={onClose} className="rounded-lg p-1.5" style={{ background: t.surface2 }}><X size={16} color={t.dim} /></button>
+      </div>
+
+      <div className="mb-4 flex gap-2">
+        {[["andamento", "Em andamento"], ["concluido", "Concluído"]].map(([k, lb]) => (
+          <button key={k} onClick={() => toggleStatus(pid, tk.id, k)}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-medium transition-all"
+            style={{ borderColor: tk.status === k ? STATUS[k].color : t.borderSoft, background: tk.status === k ? STATUS[k].color + "1E" : "transparent", color: tk.status === k ? STATUS[k].color : t.dim }}>
+            <Box checked={tk.status === k} color={STATUS[k].color} label={lb} t={t} onClick={() => {}} /> {lb}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <Field label="Status" t={t}>
+          <select value={tk.status} onChange={(e) => set({ status: e.target.value }, `${STATUS[e.target.value].label}: "${tk.name}" em ${pName}`)} style={inputStyle(t)}>
+            {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Responsável" t={t}>
+          <input value={tk.resp} onChange={(e) => set({ resp: e.target.value })} style={inputStyle(t)} />
+        </Field>
+        <Field label="Prioridade" t={t}>
+          <select value={tk.prio} onChange={(e) => set({ prio: e.target.value })} style={{ ...inputStyle(t), color: PRIO_COLOR[tk.prio] }}>
+            {Object.entries(PRIO).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        </Field>
+        <Field label="Data inicial" t={t}>
+          <input type="date" value={tk.startDate} onChange={(e) => set({ startDate: e.target.value })} style={inputStyle(t)} />
+        </Field>
+        <Field label={`Prazo ${tk.deadline ? (dd < 0 ? `(${-dd}d em atraso)` : `(${dd}d restantes)`) : ""}`} t={t}>
+          <input type="date" value={tk.deadline} onChange={(e) => set({ deadline: e.target.value }, `Definiu prazo de "${tk.name}" para ${fmtD(e.target.value)}`)} style={inputStyle(t)} />
+        </Field>
+      </div>
+
+      <button onClick={() => set({ urgent: !tk.urgent }, tk.urgent ? null : `Marcou "${tk.name}" como URGENTE`)}
+        className="mt-3 flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-sm"
+        style={{ borderColor: tk.urgent ? STATUS.atrasado.color : t.borderSoft, background: tk.urgent ? STATUS.atrasado.color + "18" : "transparent", color: tk.urgent ? STATUS.atrasado.color : t.dim }}>
+        <Flame size={15} /> {tk.urgent ? "Urgente — prioridade máxima" : "Marcar como urgente"}
+      </button>
+
+      <Field label="Descrição" t={t}>
+        <textarea value={tk.desc} onChange={(e) => set({ desc: e.target.value })} rows={2} style={{ ...inputStyle(t), resize: "vertical", marginTop: 4 }} />
+      </Field>
+      <Field label="Observações" t={t}>
+        <textarea value={tk.notes} onChange={(e) => set({ notes: e.target.value })} rows={2} style={{ ...inputStyle(t), resize: "vertical", marginTop: 4 }} />
+      </Field>
+
+      {/* etiquetas */}
+      <div className="mt-3">
+        <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold" style={{ color: t.dim }}><Tag size={12} /> ETIQUETAS</div>
+        <TagInput t={t} tags={tk.tags} setTags={(tags) => set({ tags })} />
+      </div>
+
+      {/* checklist */}
+      <div className="mt-4">
+        <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold" style={{ color: t.dim }}>
+          <ListChecks size={13} /> CHECKLIST · {tk.subtasks.filter((s) => s.done).length}/{tk.subtasks.length}
+        </div>
+        <div className="space-y-1">
+          {tk.subtasks.map((sub) => (
+            <div key={sub.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5" style={{ background: t.surface2 }}>
+              <Box checked={sub.done} color={STATUS.concluido.color} label="Concluir" t={t}
+                onClick={() => update((s) => { const x = s.projects.find((p) => p.id === pid).tasks.find((y) => y.id === tk.id).subtasks.find((z) => z.id === sub.id); x.done = !x.done; return s; }, `${sub.done ? "Reabriu" : "Concluiu"} subtarefa "${sub.name}" de "${tk.name}"`)} />
+              <span className="flex-1 text-sm" style={{ textDecoration: sub.done ? "line-through" : "none", color: sub.done ? t.dim : t.text }}>{sub.name}</span>
+              <button onClick={() => update((s) => { const x = s.projects.find((p) => p.id === pid).tasks.find((y) => y.id === tk.id); x.subtasks = x.subtasks.filter((z) => z.id !== sub.id); return s; })}>
+                <X size={13} color={t.dim} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <InlineAdd t={t} placeholder="Nova subtarefa + Enter"
+          onAdd={(n) => update((s) => { s.projects.find((p) => p.id === pid).tasks.find((y) => y.id === tk.id).subtasks.push({ id: uid(), name: n, done: false }); return s; }, `Adicionou subtarefa "${n}" em "${tk.name}"`)} />
+      </div>
+
+      {/* anexos */}
+      <div className="mt-4">
+        <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold" style={{ color: t.dim }}><Paperclip size={12} /> ANEXOS</div>
+        <AttachmentInput t={t} items={tk.attachments} setItems={(attachments) => set({ attachments })} />
+      </div>
+
+      {/* comentários */}
+      <div className="mt-4">
+        <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold" style={{ color: t.dim }}><MessageSquare size={13} /> COMENTÁRIOS</div>
+        {(tk.comments || []).map((c, i) => (
+          <div key={i} className="mb-1 rounded-lg px-2.5 py-1.5 text-xs" style={{ background: t.surface2 }}>
+            <span className="font-semibold" style={{ color: t.gold }}>{c.user}</span>
+            <span style={{ color: t.dim }}> · {fmtDT(c.ts)}</span>
+            <div style={{ color: t.text }}>{c.text}</div>
+          </div>
+        ))}
+        <InlineAdd t={t} placeholder="Escrever comentário + Enter" button="Enviar"
+          onAdd={(txt) => update((s) => { const x = s.projects.find((p) => p.id === pid).tasks.find((y) => y.id === tk.id); x.comments = [...(x.comments || []), { ts: NOW(), user, text: txt }]; return s; }, `Comentou em "${tk.name}"`)} />
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl border p-3 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
+        <div>Criada em: {fmtD(tk.createdAt)}</div>
+        <div>Última alteração: {fmtDT(tk.updatedAt)}</div>
+        <div>Status efetivo: <span style={{ color: STATUS[es].color }}>{STATUS[es].label}</span></div>
+        <div>Prioridade: <span style={{ color: PRIO_COLOR[tk.prio] }}>{PRIO[tk.prio]}</span></div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <select defaultValue="" onChange={(e) => {
+          const dest = e.target.value; if (!dest) return;
+          update((s) => { const src = s.projects.find((p) => p.id === pid); const i = src.tasks.findIndex((x) => x.id === tk.id); const [moved] = src.tasks.splice(i, 1); s.projects.find((p) => p.id === dest).tasks.push(moved); return s; },
+            `Moveu "${tk.name}" de ${pName} para ${state.projects.find((p) => p.id === dest).name}`);
+          onMoved();
+        }} className="rounded-lg border px-2 py-1.5 text-xs" style={{ background: t.surface2, color: t.text, borderColor: t.borderSoft }}>
+          <option value="">↔ Mover para projeto…</option>
+          {state.projects.filter((p) => p.id !== pid && !p.archived).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <Btn t={t} onClick={() => { update((s) => { const src = s.projects.find((p) => p.id === pid); const copy = structuredClone(src.tasks.find((x) => x.id === tk.id)); copy.id = uid(); copy.name += " (cópia)"; copy.createdAt = NOW(); copy.subtasks.forEach((z) => z.id = uid()); src.tasks.push(copy); return s; }, `Duplicou "${tk.name}"`); onDuplicated(); }}>
+          <Copy size={13} /> Duplicar
+        </Btn>
+        <Btn t={t} onClick={() => { set({ archived: true }, `Arquivou "${tk.name}"`); onArchived(); }}><Archive size={13} /> Arquivar</Btn>
+        <Btn kind="danger" t={t} onClick={onDelete}><Trash2 size={13} /> Excluir</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/* ============ INPUTS REUTILIZÁVEIS ============ */
+function InlineAdd({ t, onAdd, placeholder, button }) {
+  const [v, setV] = useState("");
+  const go = () => { if (v.trim()) { onAdd(v.trim()); setV(""); } };
+  return (
+    <div className="mt-1.5 flex gap-2">
+      <input value={v} onChange={(e) => setV(e.target.value)} placeholder={placeholder}
+        onKeyDown={(e) => e.key === "Enter" && go()} style={{ ...inputStyle(t), padding: "6px 10px", fontSize: 13 }} />
+      <button onClick={go} className="shrink-0 rounded-lg px-3 text-sm font-semibold" style={{ background: t.gold, color: "#131313" }}>{button || <Plus size={14} />}</button>
+    </div>
+  );
+}
+
+function TagInput({ t, tags, setTags }) {
+  const [v, setV] = useState("");
+  const add = () => { const n = v.trim(); if (n && !tags.includes(n)) setTags([...tags, n]); setV(""); };
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 rounded-xl border p-2" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+      {tags.map((tag) => (
+        <span key={tag} className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs" style={{ background: t.goldSoft, color: t.gold }}>
+          {tag} <button onClick={() => setTags(tags.filter((x) => x !== tag))}><X size={11} /></button>
+        </span>
+      ))}
+      <input value={v} onChange={(e) => setV(e.target.value)} placeholder={tags.length ? "" : "Etiqueta + Enter"}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+        className="min-w-[90px] flex-1 bg-transparent text-xs" style={{ color: t.text }} />
+    </div>
+  );
+}
+
+function ListBuilder({ t, items, setItems, placeholder }) {
+  const [v, setV] = useState("");
+  return (
+    <div>
+      {items.map((it, i) => (
+        <div key={i} className="mb-1 flex items-center gap-2 rounded-lg px-2 py-1 text-sm" style={{ background: t.surface2 }}>
+          <ListChecks size={12} color={t.dim} /><span className="flex-1">{it}</span>
+          <button onClick={() => setItems(items.filter((_, j) => j !== i))}><X size={12} color={t.dim} /></button>
+        </div>
+      ))}
+      <input value={v} onChange={(e) => setV(e.target.value)} placeholder={placeholder}
+        onKeyDown={(e) => { if (e.key === "Enter" && v.trim()) { e.preventDefault(); setItems([...items, v.trim()]); setV(""); } }}
+        style={{ ...inputStyle(t), padding: "6px 10px", fontSize: 13 }} />
+    </div>
+  );
+}
+
+function AttachmentInput({ t, items, setItems }) {
+  const [label, setLabel] = useState("");
+  const [url, setUrl] = useState("");
+  const add = () => {
+    const u = url.trim(); if (!u) return;
+    const full = /^https?:\/\//i.test(u) ? u : "https://" + u;
+    setItems([...(items || []), { id: uid(), label: label.trim() || u, url: full }]);
+    setLabel(""); setUrl("");
+  };
+  return (
+    <div>
+      {(items || []).map((a) => (
+        <div key={a.id} className="mb-1 flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs" style={{ background: t.surface2 }}>
+          <LinkIcon size={12} color={t.gold} />
+          <a href={a.url} target="_blank" rel="noreferrer" className="flex-1 truncate underline" style={{ color: t.gold }}>{a.label}</a>
+          <button onClick={() => setItems(items.filter((x) => x.id !== a.id))}><X size={12} color={t.dim} /></button>
+        </div>
+      ))}
+      <div className="flex gap-2">
+        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Nome"
+          style={{ ...inputStyle(t), padding: "6px 10px", fontSize: 13, width: "38%" }} />
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Link (URL)"
+          onKeyDown={(e) => e.key === "Enter" && add()} style={{ ...inputStyle(t), padding: "6px 10px", fontSize: 13 }} />
+        <button onClick={add} className="shrink-0 rounded-lg px-3 text-sm font-semibold" style={{ background: t.gold, color: "#131313" }}><Plus size={14} /></button>
+      </div>
+    </div>
+  );
+}
