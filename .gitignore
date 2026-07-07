@@ -1,0 +1,12 @@
+# dependências — cada máquina/servidor instala as suas com "npm install"
+node_modules/
+
+# build gerado — o servidor de deploy roda "npm run build"
+dist/
+
+# segredos e configuração local
+.env
+.env.local
+
+# service worker gerado em modo dev
+dev-dist/
