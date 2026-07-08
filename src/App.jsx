@@ -219,7 +219,7 @@ const Ring = ({ pct, size = 52, stroke = 5, t, color }) => {
 const Pill = ({ status }) => {
   const s = STATUS[status];
   return (
-    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
+    <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium"
       style={{ background: s.color + "22", color: s.color }}>
       <CircleDot size={10} /> {s.label}
     </span>
@@ -251,8 +251,8 @@ const Modal = ({ children, onClose, t, wide }) => (
   <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
     style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(3px)" }}
     onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-    <div className={`vfade max-h-[92vh] w-full ${wide ? "max-w-lg" : "max-w-md"} overflow-y-auto rounded-t-3xl border p-5 sm:rounded-3xl`}
-      style={{ background: t.surface, borderColor: t.border, boxShadow: t.shadow }} role="dialog" aria-modal="true">
+    <div className={`vfade max-h-[92vh] w-full ${wide ? "max-w-lg" : "max-w-md"} overflow-y-auto overflow-x-hidden rounded-t-3xl border p-5 sm:rounded-3xl`}
+      style={{ background: t.surface, borderColor: t.border, boxShadow: t.shadow, paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))" }} role="dialog" aria-modal="true">
       {children}
     </div>
   </div>
@@ -649,8 +649,8 @@ export default function App() {
 
               <div className="rounded-2xl border p-4" style={{ background: t.surface, borderColor: t.borderSoft }}>
                 <div className="mb-1 text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif" }}>Distribuição por status</div>
-                <div className="flex items-center gap-3">
-                  <div style={{ width: 130, height: 130 }}>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="shrink-0" style={{ width: 130, height: 130 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie data={pieData} dataKey="value" innerRadius={38} outerRadius={58} paddingAngle={3} stroke="none">
@@ -726,7 +726,7 @@ export default function App() {
                         <Star size={14} color={t.gold} fill={state.favorites.includes(p.id) ? t.gold : "none"} />
                       </button>
                       <PIcon name={p.icon} size={14} color={p.color} />
-                      <span className="w-24 shrink-0 truncate text-xs font-semibold" style={{ color: p.color }}>{p.code}</span>
+                      <span className="w-16 shrink-0 truncate text-xs font-semibold sm:w-24" style={{ color: p.color }}>{p.code}</span>
                       <div className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ background: t.surface2 }}>
                         <div className="h-full rounded-full" style={{ width: pct + "%", background: p.color }} />
                       </div>
@@ -742,17 +742,17 @@ export default function App() {
         {/* ===== GRID DE PROJETOS ===== */}
         {view === "projects" && !openProject && (
           <div className="vfade">
-            <div className="mb-4 flex items-center gap-2">
-              <div className="flex flex-1 items-center gap-2 rounded-xl border px-3 py-2" style={{ background: t.surface, borderColor: t.borderSoft }}>
-                <Search size={15} color={t.dim} />
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <div className="flex w-full min-w-0 items-center gap-2 rounded-xl border px-3 py-2 sm:w-auto sm:flex-1" style={{ background: t.surface, borderColor: t.borderSoft }}>
+                <Search size={15} color={t.dim} className="shrink-0" />
                 <input ref={searchRef} placeholder="Pesquisar em todos os projetos…  ( / )" value={filters.q}
                   onChange={(e) => setFilters({ ...filters, q: e.target.value })}
-                  className="w-full bg-transparent text-sm" style={{ color: t.text }} />
-                {filters.q && <button onClick={() => setFilters({ ...filters, q: "" })}><X size={14} color={t.dim} /></button>}
+                  className="w-full min-w-0 bg-transparent text-sm" style={{ color: t.text }} />
+                {filters.q && <button className="shrink-0" onClick={() => setFilters({ ...filters, q: "" })}><X size={14} color={t.dim} /></button>}
               </div>
               <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)}
                 title="Filtrar por categoria"
-                className="rounded-xl border px-2 py-2 text-sm"
+                className="min-w-0 flex-1 rounded-xl border px-2 py-2 text-sm sm:flex-none"
                 style={{ background: catFilter ? t.goldSoft : t.surface, borderColor: catFilter ? t.border : t.borderSoft, color: catFilter ? t.text : t.dim }}>
                 <option value="">Todas as categorias</option>
                 {P_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -760,7 +760,7 @@ export default function App() {
               </select>
               <button onClick={() => setOnlyPriority(!onlyPriority)}
                 title={onlyPriority ? "Mostrar todos os projetos" : "Mostrar só prioridades"}
-                className="rounded-xl border p-2"
+                className="shrink-0 rounded-xl border p-2"
                 style={{ background: onlyPriority ? t.goldSoft : t.surface, borderColor: onlyPriority ? t.border : t.borderSoft }}>
                 <Star size={16} color={t.gold} fill={onlyPriority ? t.gold : "none"} />
               </button>
@@ -878,12 +878,12 @@ export default function App() {
               const pct = ts.length ? Math.round(done / ts.length * 100) : 0;
               return (
                 <div className="mb-4 rounded-2xl border p-4" style={{ background: t.surface, borderColor: project.color + "44", boxShadow: t.shadow }}>
-                  <div className="flex items-center gap-4">
-                    <div className="relative">
+                  <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+                    <div className="relative shrink-0">
                       <Ring pct={pct} size={62} stroke={6} t={t} color={project.color} />
                       <PIcon name={project.icon} size={18} color={project.color} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" />
                     </div>
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-[160px] flex-1">
                       <div className="text-base font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{project.name}</div>
                       <div className="text-xs" style={{ color: t.dim }}>{done} concluídas · {ts.filter((x) => x.status === "andamento").length} em andamento · {ts.length} no total</div>
                       <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: t.surface2 }}>
@@ -902,14 +902,14 @@ export default function App() {
             })()}
 
             <div className="mb-3 flex items-center gap-2">
-              <div className="flex flex-1 items-center gap-2 rounded-xl border px-3 py-2" style={{ background: t.surface, borderColor: t.borderSoft }}>
-                <Search size={14} color={t.dim} />
+              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border px-3 py-2" style={{ background: t.surface, borderColor: t.borderSoft }}>
+                <Search size={14} color={t.dim} className="shrink-0" />
                 <input ref={searchRef} placeholder="Pesquisar tarefas…  ( / )" value={filters.q}
                   onChange={(e) => setFilters({ ...filters, q: e.target.value })}
-                  className="w-full bg-transparent text-sm" style={{ color: t.text }} />
-                {filters.q && <button onClick={() => setFilters({ ...filters, q: "" })}><X size={14} color={t.dim} /></button>}
+                  className="w-full min-w-0 bg-transparent text-sm" style={{ color: t.text }} />
+                {filters.q && <button className="shrink-0" onClick={() => setFilters({ ...filters, q: "" })}><X size={14} color={t.dim} /></button>}
               </div>
-              <button onClick={() => setShowFilters(!showFilters)} className="rounded-xl border p-2"
+              <button onClick={() => setShowFilters(!showFilters)} className="shrink-0 rounded-xl border p-2"
                 style={{ background: showFilters ? t.goldSoft : t.surface, borderColor: showFilters ? t.border : t.borderSoft }}>
                 <Filter size={16} color={showFilters ? t.gold : t.dim} />
               </button>
@@ -982,7 +982,7 @@ export default function App() {
                             {tk.deadline && <span style={{ color: dd < 0 ? STATUS.atrasado.color : dd <= 3 ? STATUS.aguardando.color : t.dim }}>
                               <Clock size={11} className="mb-0.5 mr-0.5 inline" />{dd < 0 ? `${-dd}d em atraso` : `${dd}d restantes`}
                             </span>}
-                            {tk.notes && <span className="truncate italic">· {tk.notes}</span>}
+                            {tk.notes && <span className="max-w-full truncate italic">· {tk.notes}</span>}
                           </div>
                         </button>
                       </div>
@@ -1050,10 +1050,10 @@ export default function App() {
             <div className="mb-3 text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif" }}>Histórico completo — auditoria (nunca é apagado)</div>
             <div className="space-y-1.5">
               {state.history.map((h, i) => (
-                <div key={i} className="flex gap-3 rounded-xl border px-3 py-2 text-xs" style={{ background: t.surface, borderColor: t.borderSoft }}>
+                <div key={i} className="flex flex-wrap gap-x-3 gap-y-0.5 rounded-xl border px-3 py-2 text-xs" style={{ background: t.surface, borderColor: t.borderSoft }}>
                   <div className="w-28 shrink-0" style={{ color: t.dim }}>{fmtDT(h.ts)}</div>
                   <div className="w-16 shrink-0 truncate font-semibold" style={{ color: t.gold }}>{h.user}</div>
-                  <div className="min-w-0 flex-1" style={{ color: t.text }}>{h.text}</div>
+                  <div className="min-w-0 flex-1 basis-full sm:basis-0" style={{ color: t.text }}>{h.text}</div>
                 </div>
               ))}
             </div>
@@ -1095,11 +1095,11 @@ export default function App() {
       )}
 
       {/* toasts */}
-      <div className="fixed bottom-5 left-1/2 z-[60] flex -translate-x-1/2 flex-col items-center gap-2">
+      <div className="fixed bottom-5 left-1/2 z-[60] flex w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 flex-col items-center gap-2">
         {toasts.map((x) => (
-          <div key={x.id} className="vfade flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium"
+          <div key={x.id} className="vfade flex max-w-full items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium"
             style={{ background: t.surface, color: x.type === "err" ? t.danger : t.gold, borderColor: x.type === "err" ? t.danger + "66" : t.border, boxShadow: t.shadow }}>
-            {x.type === "err" ? <AlertCircle size={15} /> : <CheckCircle2 size={15} />} {x.msg}
+            {x.type === "err" ? <AlertCircle size={15} className="shrink-0" /> : <CheckCircle2 size={15} className="shrink-0" />} <span className="min-w-0">{x.msg}</span>
           </div>
         ))}
       </div>
@@ -1221,7 +1221,7 @@ function TaskCreateModal({ t, state, defaultPid, user, onClose, onSave }) {
             onKeyDown={(e) => e.key === "Enter" && save()} style={inputStyle(t, errors.name)} />
         </Field>
         <Field label="Descrição" t={t}>
-          <textarea value={f.desc} onChange={(e) => set("desc", e.target.value)} rows={2} style={{ ...inputStyle(t), resize: "vertical" }} />
+          <textarea value={f.desc} onChange={(e) => set("desc", e.target.value)} rows={4} style={{ ...inputStyle(t), resize: "vertical", minHeight: 90 }} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Responsável" t={t}>
@@ -1248,7 +1248,7 @@ function TaskCreateModal({ t, state, defaultPid, user, onClose, onSave }) {
         <Field label="Checklist" t={t}><ListBuilder t={t} items={subtasks} setItems={setSubtasks} placeholder="Nova subtarefa + Enter" /></Field>
         <Field label="Anexos (links)" t={t}><AttachmentInput t={t} items={attachments} setItems={setAttachments} /></Field>
         <Field label="Observações" t={t}>
-          <textarea value={f.notes} onChange={(e) => set("notes", e.target.value)} rows={2} style={{ ...inputStyle(t), resize: "vertical" }} />
+          <textarea value={f.notes} onChange={(e) => set("notes", e.target.value)} rows={4} style={{ ...inputStyle(t), resize: "vertical", minHeight: 90 }} />
         </Field>
       </div>
       <div className="mt-5 flex gap-2">
@@ -1318,10 +1318,10 @@ function TaskDetailModal({ t, state, tk, pid, user, effStatus, setTask, toggleSt
       </button>
 
       <Field label="Descrição" t={t}>
-        <textarea value={tk.desc} onChange={(e) => set({ desc: e.target.value })} rows={2} style={{ ...inputStyle(t), resize: "vertical", marginTop: 4 }} />
+        <textarea value={tk.desc} onChange={(e) => set({ desc: e.target.value })} rows={4} style={{ ...inputStyle(t), resize: "vertical", marginTop: 4, minHeight: 90 }} />
       </Field>
       <Field label="Observações" t={t}>
-        <textarea value={tk.notes} onChange={(e) => set({ notes: e.target.value })} rows={2} style={{ ...inputStyle(t), resize: "vertical", marginTop: 4 }} />
+        <textarea value={tk.notes} onChange={(e) => set({ notes: e.target.value })} rows={4} style={{ ...inputStyle(t), resize: "vertical", marginTop: 4, minHeight: 90 }} />
       </Field>
 
       {/* etiquetas */}
@@ -1371,7 +1371,7 @@ function TaskDetailModal({ t, state, tk, pid, user, effStatus, setTask, toggleSt
           onAdd={(txt) => update((s) => { const x = s.projects.find((p) => p.id === pid).tasks.find((y) => y.id === tk.id); x.comments = [...(x.comments || []), { ts: NOW(), user, text: txt }]; return s; }, `Comentou em "${tk.name}"`)} />
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl border p-3 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
+      <div className="mt-4 grid grid-cols-1 gap-1 rounded-xl border p-3 text-xs sm:grid-cols-2" style={{ borderColor: t.borderSoft, color: t.dim }}>
         <div>Criada em: {fmtD(tk.createdAt)}</div>
         <div>Última alteração: {fmtDT(tk.updatedAt)}</div>
         <div>Status efetivo: <span style={{ color: STATUS[es].color }}>{STATUS[es].label}</span></div>
@@ -1405,7 +1405,7 @@ function InlineAdd({ t, onAdd, placeholder, button }) {
   return (
     <div className="mt-1.5 flex gap-2">
       <input value={v} onChange={(e) => setV(e.target.value)} placeholder={placeholder}
-        onKeyDown={(e) => e.key === "Enter" && go()} style={{ ...inputStyle(t), padding: "6px 10px", fontSize: 13 }} />
+        onKeyDown={(e) => e.key === "Enter" && go()} style={{ ...inputStyle(t), padding: "6px 10px", fontSize: 13, minWidth: 0 }} />
       <button onClick={go} className="shrink-0 rounded-lg px-3 text-sm font-semibold" style={{ background: t.gold, color: "#131313" }}>{button || <Plus size={14} />}</button>
     </div>
   );
@@ -1465,9 +1465,9 @@ function AttachmentInput({ t, items, setItems }) {
       ))}
       <div className="flex gap-2">
         <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Nome"
-          style={{ ...inputStyle(t), padding: "6px 10px", fontSize: 13, width: "38%" }} />
+          style={{ ...inputStyle(t), padding: "6px 10px", fontSize: 13, width: "38%", minWidth: 0 }} />
         <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Link (URL)"
-          onKeyDown={(e) => e.key === "Enter" && add()} style={{ ...inputStyle(t), padding: "6px 10px", fontSize: 13 }} />
+          onKeyDown={(e) => e.key === "Enter" && add()} style={{ ...inputStyle(t), padding: "6px 10px", fontSize: 13, minWidth: 0 }} />
         <button onClick={add} className="shrink-0 rounded-lg px-3 text-sm font-semibold" style={{ background: t.gold, color: "#131313" }}><Plus size={14} /></button>
       </div>
     </div>
