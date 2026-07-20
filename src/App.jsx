@@ -174,6 +174,7 @@ const migrate = (s) => {
     if (!p.icon) p.icon = "FolderKanban";
     if (p.category == null) p.category = "";
     if (!p.createdAt) p.createdAt = NOW();
+    if (!p.updatedAt) p.updatedAt = p.createdAt;
     (p.tasks || []).forEach((tk) => {
       if (!tk.tags) tk.tags = [];
       if (!tk.attachments) tk.attachments = [];
@@ -183,8 +184,79 @@ const migrate = (s) => {
   });
   if (!s.favorites) s.favorites = [];
   if (!s.history) s.history = [];
+  if (!s.trash) s.trash = {}; // lastro de exclusões: {id: quando foi excluído}
   s.v = 2;
   return s;
+};
+
+/* ============ SINCRONIZAÇÃO ENTRE APARELHOS ============
+   Antes, cada aba salvava o estado INTEIRO por cima do banco — quem salvasse
+   por último apagava as alterações dos outros. Agora todo salvamento e toda
+   leitura passam por mergeStates: cada tarefa vale sua versão mais recente
+   (updatedAt), exclusões viram "lápides" em trash, e o histórico é a união. */
+const mergeTrash = (a = {}, b = {}) => {
+  const out = { ...a };
+  for (const k in b) if (!out[k] || b[k] > out[k]) out[k] = b[k];
+  return out;
+};
+const mergeTasks = (la = [], ra = [], trash) => {
+  const map = new Map(la.map((t) => [t.id, t]));
+  ra.forEach((t) => {
+    const ex = map.get(t.id);
+    map.set(t.id, ex && (ex.updatedAt || "") >= (t.updatedAt || "") ? ex : t);
+  });
+  const out = [], seen = new Set();
+  la.forEach((t) => { if (!seen.has(t.id)) { seen.add(t.id); out.push(map.get(t.id)); } });
+  ra.forEach((t) => { if (!seen.has(t.id)) { seen.add(t.id); out.push(map.get(t.id)); } });
+  // editar depois de excluído em outro aparelho "ressuscita" a tarefa (intencional)
+  return out.filter((t) => !(trash[t.id] && trash[t.id] >= (t.updatedAt || "")));
+};
+const projActivity = (p) =>
+  (p.tasks || []).reduce((m, t) => ((t.updatedAt || "") > m ? t.updatedAt : m), p.updatedAt || p.createdAt || "");
+const mergeProjects = (lp = [], rp = [], trash) => {
+  const rmap = new Map(rp.map((p) => [p.id, p]));
+  const out = [], seen = new Set();
+  lp.forEach((a) => {
+    seen.add(a.id);
+    const b = rmap.get(a.id);
+    if (!b) return out.push(a);
+    const meta = (a.updatedAt || a.createdAt || "") >= (b.updatedAt || b.createdAt || "") ? a : b;
+    out.push({ ...meta, tasks: mergeTasks(a.tasks, b.tasks, trash) });
+  });
+  rp.forEach((p) => { if (!seen.has(p.id)) out.push(p); });
+  return out.filter((p) => !(trash[p.id] && trash[p.id] >= projActivity(p)));
+};
+const mergeHistory = (a = [], b = []) => {
+  const seen = new Set(), out = [];
+  [...a, ...b].forEach((h) => {
+    const k = `${h.ts}|${h.user}|${h.text}`;
+    if (!seen.has(k)) { seen.add(k); out.push(h); }
+  });
+  return out.sort((x, y) => (y.ts || "").localeCompare(x.ts || "")).slice(0, 800);
+};
+/* Uma tarefa movida de projeto pode acabar nos dois após a mesclagem:
+   mantém apenas a cópia mais recente. */
+const dedupeAcrossProjects = (projects) => {
+  const best = new Map();
+  projects.forEach((p) => p.tasks.forEach((t) => {
+    const cur = best.get(t.id);
+    if (!cur || (t.updatedAt || "") > cur.ts) best.set(t.id, { pid: p.id, ts: t.updatedAt || "" });
+  }));
+  return projects.map((p) => ({ ...p, tasks: p.tasks.filter((t) => best.get(t.id).pid === p.id) }));
+};
+const mergeStates = (local, remote) => {
+  if (!remote || !Array.isArray(remote.projects)) return local;
+  if (!local || !Array.isArray(local.projects)) return remote;
+  const trash = mergeTrash(local.trash, remote.trash);
+  const localHead = local.history?.[0]?.ts || "";
+  const remoteHead = remote.history?.[0]?.ts || "";
+  return {
+    ...local,
+    projects: dedupeAcrossProjects(mergeProjects(local.projects, remote.projects, trash)),
+    favorites: (localHead >= remoteHead ? local.favorites : remote.favorites) || [],
+    history: mergeHistory(local.history, remote.history),
+    trash,
+  };
 };
 
 /* ============ TEMA ============ */
@@ -295,6 +367,8 @@ export default function App() {
   const [dragOver, setDragOver] = useState(null);
   const loaded = useRef(false);
   const saveT = useRef(null);
+  const stateRef = useRef(null);   // estado mais recente, para o salvamento assíncrono
+  const lastMeta = useRef(null);   // updated_at da última versão vista da nuvem
   const searchRef = useRef(null);
   const t = dark ? THEMES.dark : THEMES.light;
 
@@ -304,12 +378,17 @@ export default function App() {
     setTimeout(() => setToasts((x) => x.filter((y) => y.id !== id)), 2600);
   }, []);
 
-  /* ---- carregar ---- */
+  /* ---- carregar (nuvem + backup local mesclados) ---- */
   useEffect(() => {
     (async () => {
       let s = null, prefs = null;
       try { const r = await storage.get("verum-canvas-v1"); s = r ? JSON.parse(r.value) : null; }
       catch (e) { /* chave inexistente na primeira execução — esperado */ }
+      // recupera alterações feitas offline que só existem no backup local
+      try {
+        const raw = window.localStorage.getItem("verum-canvas-v1");
+        if (raw) { const ls = JSON.parse(raw); s = s ? mergeStates(migrate(ls), migrate(s)) : ls; }
+      } catch (e) {}
       try { const r = await storage.get("verum-canvas-prefs"); prefs = r ? JSON.parse(r.value) : null; } catch (e) {}
       if (prefs) { if (prefs.dark != null) setDark(prefs.dark); if (prefs.user) setUser(prefs.user); }
       setState(migrate(s));
@@ -317,16 +396,61 @@ export default function App() {
     })().catch(() => { setLoadError(true); setState(seedState()); loaded.current = true; });
   }, []);
 
-  /* ---- salvar (debounce + tratamento de erro) ---- */
+  /* ---- salvar (debounce; mescla com a nuvem antes de gravar para não
+          sobrescrever alterações feitas por outra pessoa) ---- */
   useEffect(() => {
     if (!loaded.current || !state) return;
+    stateRef.current = state;
     clearTimeout(saveT.current);
     saveT.current = setTimeout(async () => {
-      try { await storage.set("verum-canvas-v1", JSON.stringify(state)); }
-      catch (e) { toast("Falha ao salvar — tente novamente", "err"); }
+      try {
+        let toSave = stateRef.current;
+        try {
+          const r = await storage.get("verum-canvas-v1");
+          if (r?.value) toSave = mergeStates(stateRef.current, migrate(JSON.parse(r.value)));
+        } catch (e) {}
+        const res = await storage.set("verum-canvas-v1", JSON.stringify(toSave));
+        if (res?.updated_at) lastMeta.current = res.updated_at;
+        if (JSON.stringify(toSave) !== JSON.stringify(stateRef.current)) {
+          setState((cur) => {
+            const m = mergeStates(cur, toSave);
+            return JSON.stringify(m) === JSON.stringify(cur) ? cur : m;
+          });
+        }
+      } catch (e) { toast("Falha ao salvar — tente novamente", "err"); }
     }, 500);
     return () => clearTimeout(saveT.current);
   }, [state, toast]);
+
+  /* ---- sincronizar: puxa alterações de outros aparelhos a cada 15s e ao
+          voltar para a aba (checa só o carimbo de data antes de baixar) ---- */
+  useEffect(() => {
+    const pull = async () => {
+      if (!loaded.current || document.hidden) return;
+      try {
+        const meta = await storage.meta("verum-canvas-v1");
+        if (!meta || meta === lastMeta.current) return;
+        const r = await storage.get("verum-canvas-v1");
+        if (!r?.value) return;
+        lastMeta.current = meta;
+        const remote = migrate(JSON.parse(r.value));
+        setState((cur) => {
+          if (!cur) return cur;
+          const m = mergeStates(cur, remote);
+          return JSON.stringify(m) === JSON.stringify(cur) ? cur : m;
+        });
+      } catch (e) {}
+    };
+    const iv = setInterval(pull, 15000);
+    const onVis = () => { if (!document.hidden) pull(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", onVis);
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", onVis);
+    };
+  }, []);
   useEffect(() => {
     if (!loaded.current) return;
     (async () => { try { await storage.set("verum-canvas-prefs", JSON.stringify({ dark, user })); } catch (e) {} })();
@@ -438,7 +562,7 @@ export default function App() {
   /* ---- CRUD de projeto ---- */
   const saveProject = (data, pid) => {
     if (pid) {
-      update((s) => { const p = s.projects.find((x) => x.id === pid); Object.assign(p, data); return s; }, `Editou o projeto "${data.name}"`);
+      update((s) => { const p = s.projects.find((x) => x.id === pid); Object.assign(p, data, { updatedAt: NOW() }); return s; }, `Editou o projeto "${data.name}"`);
       toast("Projeto atualizado");
     } else {
       update((s) => { s.projects.push({ id: uid(), ...data, archived: false, createdAt: NOW(), tasks: [] }); return s; }, `Criou o projeto "${data.name}"`);
@@ -448,7 +572,7 @@ export default function App() {
   };
   const archiveProject = (pid, val) => {
     const p = state.projects.find((x) => x.id === pid);
-    update((s) => { s.projects.find((x) => x.id === pid).archived = val; return s; },
+    update((s) => { Object.assign(s.projects.find((x) => x.id === pid), { archived: val, updatedAt: NOW() }); return s; },
       `${val ? "Arquivou" : "Restaurou"} o projeto "${p.name}"`);
     toast(val ? "Projeto arquivado" : "Projeto restaurado");
     if (val) setOpenProject(null);
@@ -458,7 +582,7 @@ export default function App() {
     setConfirmBox({
       msg: `Excluir o projeto "${p.name}" e suas ${p.tasks.length} tarefas? O histórico será mantido.`,
       onYes: () => {
-        update((s) => { s.projects = s.projects.filter((x) => x.id !== pid); return s; }, `Excluiu o projeto "${p.name}"`);
+        update((s) => { s.projects = s.projects.filter((x) => x.id !== pid); s.trash = { ...(s.trash || {}), [pid]: NOW() }; return s; }, `Excluiu o projeto "${p.name}"`);
         setOpenProject(null); setConfirmBox(null); toast("Projeto excluído");
       },
     });
@@ -477,7 +601,7 @@ export default function App() {
     setConfirmBox({
       msg: `Excluir a tarefa "${tk.name}"? O histórico será mantido.`,
       onYes: () => {
-        update((s) => { const sp = s.projects.find((x) => x.id === pid); sp.tasks = sp.tasks.filter((x) => x.id !== tid); return s; },
+        update((s) => { const sp = s.projects.find((x) => x.id === pid); sp.tasks = sp.tasks.filter((x) => x.id !== tid); s.trash = { ...(s.trash || {}), [tid]: NOW() }; return s; },
           `Excluiu "${tk.name}" de ${p.name}`);
         setOpenTask(null); setConfirmBox(null); toast("Tarefa excluída");
       },
@@ -1339,16 +1463,16 @@ function TaskDetailModal({ t, state, tk, pid, user, effStatus, setTask, toggleSt
           {tk.subtasks.map((sub) => (
             <div key={sub.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5" style={{ background: t.surface2 }}>
               <Box checked={sub.done} color={STATUS.concluido.color} label="Concluir" t={t}
-                onClick={() => update((s) => { const x = s.projects.find((p) => p.id === pid).tasks.find((y) => y.id === tk.id).subtasks.find((z) => z.id === sub.id); x.done = !x.done; return s; }, `${sub.done ? "Reabriu" : "Concluiu"} subtarefa "${sub.name}" de "${tk.name}"`)} />
+                onClick={() => update((s) => { const x = s.projects.find((p) => p.id === pid).tasks.find((y) => y.id === tk.id); const z = x.subtasks.find((z) => z.id === sub.id); z.done = !z.done; x.updatedAt = NOW(); return s; }, `${sub.done ? "Reabriu" : "Concluiu"} subtarefa "${sub.name}" de "${tk.name}"`)} />
               <span className="flex-1 text-sm" style={{ textDecoration: sub.done ? "line-through" : "none", color: sub.done ? t.dim : t.text }}>{sub.name}</span>
-              <button onClick={() => update((s) => { const x = s.projects.find((p) => p.id === pid).tasks.find((y) => y.id === tk.id); x.subtasks = x.subtasks.filter((z) => z.id !== sub.id); return s; })}>
+              <button onClick={() => update((s) => { const x = s.projects.find((p) => p.id === pid).tasks.find((y) => y.id === tk.id); x.subtasks = x.subtasks.filter((z) => z.id !== sub.id); x.updatedAt = NOW(); return s; })}>
                 <X size={13} color={t.dim} />
               </button>
             </div>
           ))}
         </div>
         <InlineAdd t={t} placeholder="Nova subtarefa + Enter"
-          onAdd={(n) => update((s) => { s.projects.find((p) => p.id === pid).tasks.find((y) => y.id === tk.id).subtasks.push({ id: uid(), name: n, done: false }); return s; }, `Adicionou subtarefa "${n}" em "${tk.name}"`)} />
+          onAdd={(n) => update((s) => { const x = s.projects.find((p) => p.id === pid).tasks.find((y) => y.id === tk.id); x.subtasks.push({ id: uid(), name: n, done: false }); x.updatedAt = NOW(); return s; }, `Adicionou subtarefa "${n}" em "${tk.name}"`)} />
       </div>
 
       {/* anexos */}
@@ -1368,7 +1492,7 @@ function TaskDetailModal({ t, state, tk, pid, user, effStatus, setTask, toggleSt
           </div>
         ))}
         <InlineAdd t={t} placeholder="Escrever comentário + Enter" button="Enviar"
-          onAdd={(txt) => update((s) => { const x = s.projects.find((p) => p.id === pid).tasks.find((y) => y.id === tk.id); x.comments = [...(x.comments || []), { ts: NOW(), user, text: txt }]; return s; }, `Comentou em "${tk.name}"`)} />
+          onAdd={(txt) => update((s) => { const x = s.projects.find((p) => p.id === pid).tasks.find((y) => y.id === tk.id); x.comments = [...(x.comments || []), { ts: NOW(), user, text: txt }]; x.updatedAt = NOW(); return s; }, `Comentou em "${tk.name}"`)} />
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-1 rounded-xl border p-3 text-xs sm:grid-cols-2" style={{ borderColor: t.borderSoft, color: t.dim }}>
@@ -1381,14 +1505,14 @@ function TaskDetailModal({ t, state, tk, pid, user, effStatus, setTask, toggleSt
       <div className="mt-3 flex flex-wrap gap-2">
         <select defaultValue="" onChange={(e) => {
           const dest = e.target.value; if (!dest) return;
-          update((s) => { const src = s.projects.find((p) => p.id === pid); const i = src.tasks.findIndex((x) => x.id === tk.id); const [moved] = src.tasks.splice(i, 1); s.projects.find((p) => p.id === dest).tasks.push(moved); return s; },
+          update((s) => { const src = s.projects.find((p) => p.id === pid); const i = src.tasks.findIndex((x) => x.id === tk.id); const [moved] = src.tasks.splice(i, 1); moved.updatedAt = NOW(); s.projects.find((p) => p.id === dest).tasks.push(moved); return s; },
             `Moveu "${tk.name}" de ${pName} para ${state.projects.find((p) => p.id === dest).name}`);
           onMoved();
         }} className="rounded-lg border px-2 py-1.5 text-xs" style={{ background: t.surface2, color: t.text, borderColor: t.borderSoft }}>
           <option value="">↔ Mover para projeto…</option>
           {state.projects.filter((p) => p.id !== pid && !p.archived).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
-        <Btn t={t} onClick={() => { update((s) => { const src = s.projects.find((p) => p.id === pid); const copy = structuredClone(src.tasks.find((x) => x.id === tk.id)); copy.id = uid(); copy.name += " (cópia)"; copy.createdAt = NOW(); copy.subtasks.forEach((z) => z.id = uid()); src.tasks.push(copy); return s; }, `Duplicou "${tk.name}"`); onDuplicated(); }}>
+        <Btn t={t} onClick={() => { update((s) => { const src = s.projects.find((p) => p.id === pid); const copy = structuredClone(src.tasks.find((x) => x.id === tk.id)); copy.id = uid(); copy.name += " (cópia)"; copy.createdAt = NOW(); copy.updatedAt = NOW(); copy.subtasks.forEach((z) => z.id = uid()); src.tasks.push(copy); return s; }, `Duplicou "${tk.name}"`); onDuplicated(); }}>
           <Copy size={13} /> Duplicar
         </Btn>
         <Btn t={t} onClick={() => { set({ archived: true }, `Arquivou "${tk.name}"`); onArchived(); }}><Archive size={13} /> Arquivar</Btn>
