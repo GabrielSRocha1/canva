@@ -1056,9 +1056,9 @@ export default function App() {
             {(() => {
               const visible = project.tasks.filter((x) => !x.archived && matches(x));
               // prioridade sempre no topo: urgentes primeiro, depois prioridade
-              // alta, depois as demais na ordem manual; concluídas não ficam
-              // presas no topo
-              const taskRank = (x) => (x.status === "concluido" ? 2 : x.urgent ? 0 : x.prio === "alta" ? 1 : 2);
+              // alta, depois as demais na ordem manual; concluídas vão sempre
+              // para o fim da lista
+              const taskRank = (x) => (x.status === "concluido" ? 3 : x.urgent ? 0 : x.prio === "alta" ? 1 : 2);
               visible.sort((a, b) => taskRank(a) - taskRank(b));
               if (project.tasks.filter((x) => !x.archived).length === 0) return (
                 <div className="rounded-2xl border p-8 text-center" style={{ background: t.surface, borderColor: t.borderSoft }}>
